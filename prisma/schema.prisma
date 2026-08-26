@@ -1,0 +1,111 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AnalysisTarget {
+  id          String         @id @default(uuid())
+  platform    String         @default("BILIBILI")
+  platformUid String         @unique
+  displayName String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  tasks       AnalysisTask[]
+
+  @@map("analysis_targets")
+}
+
+model AnalysisTask {
+  id                   String                @id @default(uuid())
+  targetId             String
+  taskStatus           String                @default("PENDING")
+  pipelineStage        String                @default("COLLECT")
+  outcome              String                @default("NONE")
+  progress             Int                   @default(0)
+  currentStageMessage  String                @default("")
+  needsRegeneration    Boolean               @default(false)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  completedAt          DateTime?
+  target               AnalysisTarget        @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  dataSourceRuns       DataSourceRun[]
+  selfProvidedSnapshot SelfProvidedSnapshot?
+
+  @@index([targetId])
+  @@index([taskStatus])
+  @@map("analysis_tasks")
+}
+
+model DataSourceRun {
+  id           String       @id @default(uuid())
+  taskId       String
+  sourceName   String
+  status       String       @default("SUCCEEDED")
+  recordsCount Int          @default(0)
+  message      String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  task         AnalysisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("data_source_runs")
+}
+
+model SelfProvidedProfile {
+  id        String              @id @default(uuid())
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  fields    SelfProvidedField[]
+
+  @@map("self_provided_profiles")
+}
+
+model SelfProvidedField {
+  id                 String              @id @default(uuid())
+  profileId          String
+  fieldName          String
+  value              String
+  allowedForAnalysis Boolean             @default(true)
+  consentScope       String              @default("PERSISTENT_ACROSS_TASKS")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  profile            SelfProvidedProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  snapshotFields     SnapshotField[]
+
+  @@unique([profileId, fieldName])
+  @@index([fieldName])
+  @@map("self_provided_fields")
+}
+
+model SelfProvidedSnapshot {
+  id        String          @id @default(uuid())
+  taskId    String          @unique
+  createdAt DateTime        @default(now())
+  task      AnalysisTask    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fields    SnapshotField[]
+
+  @@map("self_provided_snapshots")
+}
+
+model SnapshotField {
+  id            String               @id @default(uuid())
+  snapshotId    String
+  sourceFieldId String?
+  fieldName     String
+  value         String
+  consentScope  String               @default("PERSISTENT_ACROSS_TASKS")
+  createdAt     DateTime             @default(now())
+  snapshot      SelfProvidedSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  sourceField   SelfProvidedField?   @relation(fields: [sourceFieldId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId])
+  @@index([fieldName])
+  @@map("snapshot_fields")
+}

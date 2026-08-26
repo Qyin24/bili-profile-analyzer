@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Base Colors: Terracotta & Cream */
+    --background: 22 28% 62%;         /* Terracotta Warm Background #B89582 */
+    --foreground: 24 25% 18%;         /* Deep Warm Charcoal #362921 */
+
+    --card: 40 33% 99%;               /* Cream White #FDFCFA */
+    --card-foreground: 24 25% 18%;
+
+    --popover: 40 33% 99%;
+    --popover-foreground: 24 25% 18%;
+
+    /* Accent & Action: Sage Teal #4E878C */
+    --primary: 185 28% 43%;           /* Sage Teal */
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 185 30% 36%;
+
+    --secondary: 32 30% 92%;          /* Warm Sand */
+    --secondary-foreground: 24 25% 22%;
+
+    --muted: 30 20% 90%;
+    --muted-foreground: 24 15% 45%;
+
+    --accent: 30 35% 88%;
+    --accent-foreground: 24 25% 18%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 24 20% 86%;
+    --input: 24 20% 86%;
+    --ring: 185 28% 43%;
+
+    --radius: 1rem;                   /* 16px 大圆角设计规范 */
+  }
+
+  .dark {
+    --background: 24 20% 14%;
+    --foreground: 40 20% 94%;
+
+    --card: 24 18% 18%;
+    --card-foreground: 40 20% 94%;
+
+    --popover: 24 18% 18%;
+    --popover-foreground: 40 20% 94%;
+
+    --primary: 185 32% 48%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 185 35% 42%;
+
+    --secondary: 24 15% 24%;
+    --secondary-foreground: 40 20% 90%;
+
+    --muted: 24 15% 26%;
+    --muted-foreground: 30 12% 65%;
+
+    --accent: 24 15% 28%;
+    --accent-foreground: 40 20% 94%;
+
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 24 15% 28%;
+    --input: 24 15% 28%;
+    --ring: 185 32% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased min-h-screen;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
