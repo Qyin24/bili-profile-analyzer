@@ -6,62 +6,96 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+enum TaskStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PipelineStage {
+  COLLECT
+  NORMALIZE
+  CLEAN
+  EXTRACT
+  AGGREGATE
+  STATISTICAL_ANALYSIS
+  AI_ANALYSIS
+  SYNTHESIS
+  REPORT
+}
+
+enum TaskOutcome {
+  FULL
+  PARTIAL
+  NONE
+}
+
+enum DataSourceRunStatus {
+  SUCCEEDED
+  SKIPPED_UNAVAILABLE
+  RATE_LIMITED
+  FAILED
+}
+
+enum ConsentScope {
+  THIS_TASK_ONLY
+  PERSISTENT_ACROSS_TASKS
+}
+
+enum RawRecordSourceType {
+  BASIC_PROFILE
+  PUBLIC_FOLLOWS
+  PUBLIC_CONTENT
+}
+
+enum TopicSubjectType {
+  FOLLOW
+  CONTENT_ITEM
+}
+
+enum TopicAssignmentMethod {
+  RULE_BASED
+  MANUAL
+}
+
+enum EvidenceSourceType {
+  SELF_REPORTED
+  STATISTICAL_METRIC
+  FOLLOW_RECORD
+  CONTENT_SAMPLE
+}
+
 model AnalysisTarget {
-  id          String         @id @default(uuid())
-  platform    String         @default("BILIBILI")
-  platformUid String         @unique
-  displayName String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  tasks       AnalysisTask[]
+  id                       String               @id @default(uuid())
+  inputType                String               @default("UID") // UID | PROFILE_URL
+  platform                 String               @default("BILIBILI")
+  platformUid              String               @unique
+  normalizedIdentifier     String               @default("")
+  displayName              String?
+  operatorConsentConfirmed Boolean              @default(true)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  tasks                    AnalysisTask[]
+  selfProfile              SelfProvidedProfile?
+  socialProfiles           Profile[]
+  follows                  Follow[]
+  contentItems             ContentItem[]
 
   @@map("analysis_targets")
 }
 
-model AnalysisTask {
-  id                   String                @id @default(uuid())
-  targetId             String
-  taskStatus           String                @default("PENDING")
-  pipelineStage        String                @default("COLLECT")
-  outcome              String                @default("NONE")
-  progress             Int                   @default(0)
-  currentStageMessage  String                @default("")
-  needsRegeneration    Boolean               @default(false)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  completedAt          DateTime?
-  target               AnalysisTarget        @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  dataSourceRuns       DataSourceRun[]
-  selfProvidedSnapshot SelfProvidedSnapshot?
-
-  @@index([targetId])
-  @@index([taskStatus])
-  @@map("analysis_tasks")
-}
-
-model DataSourceRun {
-  id           String       @id @default(uuid())
-  taskId       String
-  sourceName   String
-  status       String       @default("SUCCEEDED")
-  recordsCount Int          @default(0)
-  message      String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  task         AnalysisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@map("data_source_runs")
-}
-
 model SelfProvidedProfile {
   id        String              @id @default(uuid())
+  targetId  String?             @unique
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
+  target    AnalysisTarget?     @relation(fields: [targetId], references: [id], onDelete: Cascade)
   fields    SelfProvidedField[]
 
   @@map("self_provided_profiles")
@@ -70,10 +104,11 @@ model SelfProvidedProfile {
 model SelfProvidedField {
   id                 String              @id @default(uuid())
   profileId          String
+  fieldKey           String              @default("")
   fieldName          String
   value              String
   allowedForAnalysis Boolean             @default(true)
-  consentScope       String              @default("PERSISTENT_ACROSS_TASKS")
+  consentScope       ConsentScope        @default(PERSISTENT_ACROSS_TASKS)
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   profile            SelfProvidedProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
@@ -81,7 +116,35 @@ model SelfProvidedField {
 
   @@unique([profileId, fieldName])
   @@index([fieldName])
+  @@index([fieldKey])
   @@map("self_provided_fields")
+}
+
+model AnalysisTask {
+  id                   String                       @id @default(uuid())
+  targetId             String
+  taskStatus           TaskStatus                   @default(PENDING)
+  pipelineStage        PipelineStage                @default(COLLECT)
+  outcome              TaskOutcome                  @default(NONE)
+  progress             Int                          @default(0)
+  currentStageMessage  String                       @default("")
+  needsRegeneration    Boolean                      @default(false)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  completedAt          DateTime?
+  target               AnalysisTarget               @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  dataSourceRuns       DataSourceRun[]
+  selfProvidedSnapshot SelfProvidedSnapshot?
+  rawRecords           RawRecord[]
+  metrics              Metric[]
+  evidenceSnapshots    ReportEvidenceSnapshot[]
+  analysisResult       AnalysisResult?
+  deterministicReport  DeterministicReportArtifact?
+  aiAnalysis           AiAnalysisArtifact?
+
+  @@index([targetId])
+  @@index([taskStatus])
+  @@map("analysis_tasks")
 }
 
 model SelfProvidedSnapshot {
@@ -98,14 +161,218 @@ model SnapshotField {
   id            String               @id @default(uuid())
   snapshotId    String
   sourceFieldId String?
+  fieldKey      String               @default("")
   fieldName     String
   value         String
-  consentScope  String               @default("PERSISTENT_ACROSS_TASKS")
+  consentScope  ConsentScope         @default(PERSISTENT_ACROSS_TASKS)
   createdAt     DateTime             @default(now())
   snapshot      SelfProvidedSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   sourceField   SelfProvidedField?   @relation(fields: [sourceFieldId], references: [id], onDelete: SetNull)
 
   @@index([snapshotId])
   @@index([fieldName])
+  @@index([fieldKey])
   @@map("snapshot_fields")
+}
+
+model DataSourceRun {
+  id           String              @id @default(uuid())
+  taskId       String
+  sourceName   String
+  status       DataSourceRunStatus @default(SUCCEEDED)
+  recordsCount Int                 @default(0)
+  durationMs   Int                 @default(0)
+  message      String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  task         AnalysisTask        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  rawRecords   RawRecord[]
+
+  @@index([taskId])
+  @@map("data_source_runs")
+}
+
+model RawRecord {
+  id               String              @id @default(uuid())
+  taskId           String
+  dataSourceRunId  String?
+  sourceType       RawRecordSourceType
+  sourceIdentifier String
+  payload          String // Whitelisted body payload only, NO headers/cookies/credentials
+  contentHash      String // SHA-256 hash of payload
+  status           String              @default("CAPTURED")
+  capturedAt       DateTime            @default(now())
+  expiresAt        DateTime            @default(dbgenerated("CURRENT_TIMESTAMP + INTERVAL '30 days'"))
+  createdAt        DateTime            @default(now())
+  task             AnalysisTask        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  dataSourceRun    DataSourceRun?      @relation(fields: [dataSourceRunId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([dataSourceRunId])
+  @@index([expiresAt])
+  @@map("raw_records")
+}
+
+model Profile {
+  id          String         @id @default(uuid())
+  targetId    String
+  platformUid String
+  displayName String
+  avatarUrl   String?
+  signature   String?
+  level       Int?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  target      AnalysisTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([targetId])
+  @@index([platformUid])
+  @@map("profiles")
+}
+
+model Follow {
+  id               String            @id @default(uuid())
+  targetId         String
+  followUid        String
+  displayName      String
+  signature        String?
+  avatarUrl        String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  target           AnalysisTarget    @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  topicAssignments TopicAssignment[]
+
+  @@index([targetId])
+  @@index([followUid])
+  @@map("follows")
+}
+
+model ContentItem {
+  id               String            @id @default(uuid())
+  targetId         String
+  itemId           String
+  itemType         String // DYNAMIC | VIDEO | ARTICLE
+  title            String?
+  textExcerpt      String?
+  publishTime      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  target           AnalysisTarget    @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  topicAssignments TopicAssignment[]
+
+  @@index([targetId])
+  @@index([itemId])
+  @@map("content_items")
+}
+
+model TopicTaxonomy {
+  id          String            @id @default(uuid())
+  name        String
+  code        String            @unique
+  color       String?
+  description String?
+  version     String            @default("1.0.0")
+  isEnabled   Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  assignments TopicAssignment[]
+
+  @@map("topic_taxonomies")
+}
+
+model TopicAssignment {
+  id              String                @id @default(uuid())
+  subjectType     TopicSubjectType
+  subjectId       String
+  topicId         String
+  taxonomyVersion String                @default("1.0.0")
+  method          TopicAssignmentMethod @default(RULE_BASED)
+  confidence      Float                 @default(1.0)
+  evidenceIds     String                @default("[]") // JSON string array of IDs
+  followId        String?
+  contentItemId   String?
+  createdAt       DateTime              @default(now())
+  topic           TopicTaxonomy         @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  follow          Follow?               @relation(fields: [followId], references: [id], onDelete: Cascade)
+  contentItem     ContentItem?          @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@index([subjectType, subjectId])
+  @@index([topicId])
+  @@index([followId])
+  @@index([contentItemId])
+  @@map("topic_assignments")
+}
+
+model Metric {
+  id              String       @id @default(uuid())
+  taskId          String
+  metricName      String
+  numericValue    Float
+  structuredValue String? // Optional JSON payload for complex distributions
+  unit            String?
+  source          String       @default("STATISTICAL_ANALYSIS")
+  computedAt      DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+  task            AnalysisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("metrics")
+}
+
+model ReportEvidenceSnapshot {
+  id                   String             @id @default(uuid())
+  taskId               String
+  sourceType           EvidenceSourceType
+  evidenceId           String
+  title                String?
+  excerptOrMetricValue String
+  contentHash          String
+  createdAt            DateTime           @default(now())
+  task                 AnalysisTask       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([evidenceId])
+  @@map("report_evidence_snapshots")
+}
+
+model AnalysisResult {
+  id          String       @id @default(uuid())
+  taskId      String       @unique
+  summary     String
+  version     String       @default("1.0.0")
+  outcome     TaskOutcome  @default(FULL)
+  metricsData String?
+  claimsData  String?
+  generatedAt DateTime     @default(now())
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  task        AnalysisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("analysis_results")
+}
+
+model DeterministicReportArtifact {
+  id              String       @id @default(uuid())
+  taskId          String       @unique
+  schemaVersion   String
+  taxonomyVersion String
+  reportData      String
+  createdAt       DateTime     @default(now())
+  task            AnalysisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("deterministic_report_artifacts")
+}
+
+model AiAnalysisArtifact {
+  id                  String       @id @default(uuid())
+  taskId              String       @unique
+  provider            String
+  schemaVersion       String
+  reportSchemaVersion String
+  taxonomyVersion     String
+  analysisData        String
+  createdAt           DateTime     @default(now())
+  task                AnalysisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("ai_analysis_artifacts")
 }
