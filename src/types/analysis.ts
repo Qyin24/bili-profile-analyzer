@@ -58,7 +58,10 @@ export interface AnalysisTargetSummary {
   totalDynamicsSampled: number;
   createdAt: string;
   lastAnalyzedAt?: string;
+  description?: string;
 }
+
+export type AnalysisTarget = AnalysisTargetSummary;
 
 export interface DataSourceRun {
   id: string;
@@ -84,6 +87,8 @@ export interface AnalysisTaskMock {
   completedAt?: string;
   dataSourceRuns: DataSourceRun[];
 }
+
+export type AnalysisTask = AnalysisTaskMock;
 
 export interface TopicTaxonomyItem {
   id: string;

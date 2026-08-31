@@ -1,18 +1,17 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { MockRelationshipGraph } from "@/components/features/graph/mock-relationship-graph";
+"use client";
 
-export const metadata = {
-  title: "关系概览 · BiliProfile Analyzer",
-  description: "直观展示“你 — 内容主题 — 关注博主”之间的关联结构",
-};
+import * as React from "react";
+import { AppLayout } from "@/components/layout/app-layout";
+import { RelationshipGraphView } from "@/components/features/graph/relationship-graph-view";
 
 export default function GraphPage() {
   return (
-    <AppShell
+    <AppLayout
       headerTitle="关系概览"
-      headerSubtitle="直观展示分析主体、关注主题与代表性博主之间的多维关系结构"
+      headerSubtitle="以“你 — 内容主题 — 关注对象”通俗展示关系概览。"
+      showNewAnalysisButton
     >
-      <MockRelationshipGraph />
-    </AppShell>
+      <RelationshipGraphView />
+    </AppLayout>
   );
 }

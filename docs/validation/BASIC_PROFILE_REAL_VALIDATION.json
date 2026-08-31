@@ -1,0 +1,138 @@
+{
+  "validationRunId": "val-bp-1788086312418-11e8d0f0",
+  "executedAtUtc": "2026-08-30T10:38:32.417Z",
+  "validationMode": "REAL_CONNECTOR",
+  "targetFingerprint": "sha256:f7f323152be524cb93a67d0c8298cd40411575ea93cc24c4d4b3af7211077d4d",
+  "precheckBaseline": {
+    "basicProfileCapabilityBefore": "AVAILABLE_PUBLIC",
+    "publicFollowsCapabilityBefore": "UNVERIFIED",
+    "publicContentCapabilityBefore": "UNVERIFIED"
+  },
+  "requestRecords": [
+    {
+      "requestIndex": 1,
+      "timestampUtc": "2026-08-30T10:38:32.419Z",
+      "method": "GET",
+      "targetHost": "space.bilibili.com",
+      "pathTemplate": "/[MASKED_UID]",
+      "httpStatus": 200,
+      "bodyFormat": "HTML",
+      "responseBodyHash": "b14fcf586522cdf05840d3d4ec87a067f33515b2978f329a4ea117f292002c09",
+      "observedFieldManifest": [
+        {
+          "fieldName": "displayName",
+          "type": "string",
+          "isPresent": true,
+          "isNullOrEmpty": false,
+          "mappingSuccess": true
+        },
+        {
+          "fieldName": "description",
+          "type": "string",
+          "isPresent": true,
+          "isNullOrEmpty": false,
+          "mappingSuccess": true
+        },
+        {
+          "fieldName": "avatarIdentifier",
+          "type": "string",
+          "isPresent": true,
+          "isNullOrEmpty": false,
+          "mappingSuccess": true
+        },
+        {
+          "fieldName": "observedAt",
+          "type": "string",
+          "isPresent": true,
+          "isNullOrEmpty": false,
+          "mappingSuccess": true
+        }
+      ]
+    }
+  ],
+  "sourceAssessment": {
+    "sourceExists": true,
+    "publiclyAccessibleObserved": true,
+    "authenticationRequiredObserved": null,
+    "rateLimitObserved": null,
+    "regionRestrictionObserved": null,
+    "antiBotObserved": null,
+    "environmentIssueObserved": null
+  },
+  "contractCompatibility": {
+    "requiredFields": [
+      "recordId",
+      "provenance",
+      "availability"
+    ],
+    "optionalFields": [
+      "displayName",
+      "description",
+      "tags",
+      "avatarIdentifier",
+      "observedAt"
+    ],
+    "observedFieldManifest": [
+      {
+        "fieldName": "displayName",
+        "type": "string",
+        "isPresent": true,
+        "isNullOrEmpty": false,
+        "mappingSuccess": true
+      },
+      {
+        "fieldName": "description",
+        "type": "string",
+        "isPresent": true,
+        "isNullOrEmpty": false,
+        "mappingSuccess": true
+      },
+      {
+        "fieldName": "avatarIdentifier",
+        "type": "string",
+        "isPresent": true,
+        "isNullOrEmpty": false,
+        "mappingSuccess": true
+      },
+      {
+        "fieldName": "observedAt",
+        "type": "string",
+        "isPresent": true,
+        "isNullOrEmpty": false,
+        "mappingSuccess": true
+      }
+    ],
+    "mappingResult": "SUCCESS",
+    "irreconcilableConflict": false
+  },
+  "provenanceAssessment": {
+    "sourceType": "PROFILE",
+    "sourceIdentifier": "sha256:f7f323152be524cb93a67d0c8298cd40411575ea93cc24c4d4b3af7211077d4d",
+    "fetchedAt": "2026-08-30T10:38:32.419Z",
+    "responseHash": "b14fcf586522cdf05840d3d4ec87a067f33515b2978f329a4ea117f292002c09",
+    "auditProjectionValid": true
+  },
+  "safetyAssessment": {
+    "rawResponsePersisted": false,
+    "credentialsObserved": false,
+    "credentialsPersisted": false,
+    "rawResponseSentToAi": false,
+    "sensitiveDataSentToAi": false
+  },
+  "pipelineShadowRun": {
+    "normalize": "PASSED",
+    "clean": "PASSED",
+    "extract": "PASSED",
+    "aggregate": "PASSED",
+    "statisticalAnalysis": "PASSED",
+    "aiSynthesis": "NOT_RUN",
+    "report": "PASSED"
+  },
+  "failClosedCheck": true,
+  "recommendedNextStep": "保持 BASIC_PROFILE 为 UNVERIFIED 阻断状态，排查前置条件、安全边界或契约兼容性问题。",
+  "finalConclusion": "当前环境无法完成验证，需要以下前置条件",
+  "errorCode": "AI_STAGE_UNAVAILABLE",
+  "errorSummary": "BASIC_PROFILE 数据源与确定性流水线均已验证通过，但 AI Provider 尚未配置或不可用。",
+  "dataSourceSubAssessment": "BASIC_PROFILE 数据源及确定性影子流水线均通过，待 AI 配置就绪后可正式接入。",
+  "auditChainHash": "970330d8abb47d051ad9b71d6dccb2453b12231eb33b15aeb19051f2aaab145a"
+}

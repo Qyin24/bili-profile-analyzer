@@ -34,7 +34,7 @@ export function extractTopics(
     const matchedCategoryIds = new Set<string>();
     const matches: TopicMatch[] = [];
 
-    // 1. Tag Matching (exact match, case-insensitive)
+    // 1. Tag Matching (exact match, case-insensitive) -> STRONG signal
     const lowerTags = record.tags.map((t) => t.toLowerCase());
     for (const tag of lowerTags) {
       for (const cat of TOPIC_TAXONOMY) {
@@ -47,6 +47,7 @@ export function extractTopics(
             matchType: "TAG",
             matchedTerm: tag,
             matchedTopicId: cat.id,
+            signalStrength: "STRONG",
           };
           matches.push({
             topicId: cat.id,
@@ -57,28 +58,76 @@ export function extractTopics(
       }
     }
 
-    // 2. Keyword Matching in Title and Description (case-insensitive substring)
-    const combinedText = `${record.title} ${record.description}`.toLowerCase();
-    if (combinedText.trim().length > 0) {
+    // 2. Title Matching (case-insensitive) -> STRONG signal
+    const titleLower = (record.title || "").toLowerCase();
+    if (titleLower.trim().length > 0) {
       for (const cat of TOPIC_TAXONOMY) {
         if (!matchedCategoryIds.has(cat.id)) {
           for (const kw of cat.keywords) {
-            if (combinedText.includes(kw)) {
+            const isMatched = /^[a-z0-9]{1,3}$/.test(kw)
+              ? new RegExp(`(?:^|[^a-z0-9])${kw}(?:$|[^a-z0-9])`, "i").test(titleLower)
+              : titleLower.includes(kw);
+
+            if (isMatched) {
               matchedCategoryIds.add(cat.id);
               const evidenceRef: EvidenceRef = {
                 sourceRecordId: record.sourceRecordId,
                 sourceType: record.sourceType,
                 sourceUrl: record.sourceUrl,
-                matchType: "KEYWORD",
+                matchType: "TITLE",
                 matchedTerm: kw,
                 matchedTopicId: cat.id,
+                signalStrength: "STRONG",
               };
               matches.push({
                 topicId: cat.id,
                 topicName: cat.name,
                 evidenceRef,
               });
-              break; // Matched this category, move to next category
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Description Matching -> MEDIUM (prose) or WEAK (link/casual mention) signal
+    const descLower = (record.description || "").toLowerCase();
+    if (descLower.trim().length > 0) {
+      for (const cat of TOPIC_TAXONOMY) {
+        if (!matchedCategoryIds.has(cat.id)) {
+          for (const kw of cat.keywords) {
+            const isMatched = /^[a-z0-9]{1,3}$/.test(kw)
+              ? new RegExp(`(?:^|[^a-z0-9])${kw}(?:$|[^a-z0-9])`, "i").test(descLower)
+              : descLower.includes(kw);
+
+            if (isMatched) {
+              matchedCategoryIds.add(cat.id);
+              // Determine if mention is within a URL or external link (WEAK) or direct prose (MEDIUM)
+              const isUrlContext =
+                descLower.includes(`http://${kw}`) ||
+                descLower.includes(`https://${kw}`) ||
+                descLower.includes(`${kw}.com`) ||
+                descLower.includes(`steamcommunity`) ||
+                descLower.includes(`sharedfiles`);
+
+              const signalStrength = isUrlContext ? "WEAK" : "MEDIUM";
+
+              const evidenceRef: EvidenceRef = {
+                sourceRecordId: record.sourceRecordId,
+                sourceType: record.sourceType,
+                sourceUrl: record.sourceUrl,
+                matchType: "DESCRIPTION",
+                matchedTerm: kw,
+                matchedTopicId: cat.id,
+                signalStrength,
+              };
+              matches.push({
+                topicId: cat.id,
+                topicName: cat.name,
+                evidenceRef,
+              });
+              break;
             }
           }
         }

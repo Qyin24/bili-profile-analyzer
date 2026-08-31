@@ -1,5 +1,5 @@
 /**
- * BiliProfile Analyzer — Phase 5.2.2: Deterministic Report Input & Evidence Package Builder
+ * BiliProfile Analyzer — Phase 5.2.2 & 5.2.3.2: Deterministic Report Input & Evidence Package Builder
  *
  * Transforms DeterministicAnalysisResult into a structured, verifiable, and safe
  * DeterministicReportInput for future report generation or AI consumption.
@@ -11,6 +11,7 @@
  * - Zero propagation of uncontrolled warning messages, raw body text, or self-profile leaks.
  * - Distinguishes SOURCE_LIMITATION (source availability) from DATA_QUALITY (general format/quality).
  * - Strict whitelist and scalar validation.
+ * - Strict structural validation: rejects ANY unknown or extra fields in root, observation, evidence, or diagnosticsSummary.
  */
 
 import {
@@ -20,12 +21,14 @@ import {
   ReportEvidence,
   ReportDiagnosticsSummary,
   ReportInputValidationResult,
+  ContentItemEvidence,
   REPORT_INPUT_SCHEMA_VERSION,
   VALID_OBSERVATION_CATEGORIES,
   VALID_EVIDENCE_TYPES,
   ObservationCategory,
   EvidenceType,
 } from "@/types/processing";
+import { computeBehaviorTopicMatrix } from "./behavior-matrix";
 
 /**
  * Local static mapping of known warning codes to neutral, controlled descriptions.
@@ -39,6 +42,74 @@ const KNOWN_WARNING_STATEMENTS: Record<string, string> = {
   INVALID_SOURCE_TYPE: "数据源包含未知或非法的来源类型",
   INVALID_AVAILABILITY: "数据源包含非法的可用性状态值",
 };
+
+/**
+ * Allowed key whitelists for strict structural validation
+ */
+const ALLOWED_ROOT_KEYS = new Set([
+  "schemaVersion",
+  "taxonomyVersion",
+  "observations",
+  "evidence",
+  "contentItems",
+  "behaviorTopicMatrix",
+  "temporalPatterns",
+  "sourceAvailability",
+  "samplingMetadata",
+  "limitations",
+  "diagnosticsSummary",
+]);
+
+const ALLOWED_SAMPLING_METADATA_KEYS = new Set([
+  "sourceType",
+  "platformTotalCount",
+  "collectedCount",
+  "analyzedCount",
+  "samplingStrategy",
+  "isComplete",
+  "timeWindowDescription",
+  "samplingWarning",
+]);
+
+const ALLOWED_CONTENT_ITEM_KEYS = new Set([
+  "evidenceId",
+  "sourceRecordId",
+  "sourceType",
+  "title",
+  "description",
+  "tags",
+  "authorName",
+  "observedAt",
+  "publishedAt",
+  "interactionAt",
+  "matchedTopics",
+  "metadata",
+]);
+
+const ALLOWED_OBSERVATION_KEYS = new Set([
+  "id",
+  "category",
+  "statement",
+  "evidenceIds",
+  "scopeNote",
+]);
+
+const ALLOWED_EVIDENCE_KEYS = new Set([
+  "id",
+  "type",
+  "label",
+  "value",
+  "unit",
+  "sourceKey",
+]);
+
+const ALLOWED_DIAGNOSTICS_SUMMARY_KEYS = new Set([
+  "totalInput",
+  "analyzedCount",
+  "unclassifiedCount",
+  "hasQualityWarnings",
+  "warningCodes",
+]);
 
 /**
  * Builds a deterministic, evidence-backed report input package from analysis results.
@@ -329,7 +400,85 @@ export function buildDeterministicReportInput(
   limitations.push("本系统严禁推断个体MBTI、政治、宗教、身心健康等任何敏感属性。");
 
   // -------------------------------------------------------------------------
-  // 6. Diagnostics Summary
+  // 5.5. Evidence Namespace Separation (PROFILE vs CONTENT/FOLLOW)
+  // -------------------------------------------------------------------------
+  const extracted = Array.isArray(result.extractedRecords) ? result.extractedRecords : [];
+  const profileRecords = extracted.filter((item) => item.record.sourceType === "PROFILE");
+  const contentRecords = extracted.filter((item) => item.record.sourceType !== "PROFILE");
+
+  // 1. Process PROFILE records -> ev_profile_01, ev_profile_02, ...
+  profileRecords.forEach((item, idx) => {
+    const profileEvId = `ev_profile_${String(idx + 1).padStart(2, "0")}`;
+    const sanitizedTitle = (item.record.title || "").replace(/SENTINEL_[A-Za-z0-9_]+/g, "[受控文本]").slice(0, 100);
+    const sanitizedDesc = (item.record.description || "").replace(/SENTINEL_[A-Za-z0-9_]+/g, "[受控文本]").slice(0, 200);
+
+    addEvidence({
+      id: profileEvId,
+      type: "PROFILE_ITEM",
+      label: sanitizedTitle ? `主页资料[${sanitizedTitle.slice(0, 24)}]` : `主页资料[${item.record.sourceRecordId}]`,
+      value: sanitizedDesc || sanitizedTitle || item.record.sourceRecordId,
+      sourceKey: `profile[${item.record.sourceRecordId}]`,
+    });
+  });
+
+  // 2. Process non-profile records -> ev_item_01, ev_item_02, ... (Strict continuous indexing starting from 01)
+  const contentItems: ContentItemEvidence[] = [];
+  contentRecords.forEach((item, idx) => {
+    const evidenceId = `ev_item_${String(idx + 1).padStart(2, "0")}`;
+    const matchedTopics = item.topicMatches.map((m) => ({
+      topicId: m.topicId,
+      topicName: m.topicName,
+      matchedTerm: m.evidenceRef.matchedTerm,
+      matchType: m.evidenceRef.matchType,
+      signalStrength: m.evidenceRef.signalStrength,
+    }));
+
+    const sanitizedTitle = (item.record.title || "").replace(/SENTINEL_[A-Za-z0-9_]+/g, "[受控文本]").slice(0, 100);
+    const sanitizedDesc = (item.record.description || "").replace(/SENTINEL_[A-Za-z0-9_]+/g, "[受控文本]").slice(0, 200);
+
+    const contentItem: ContentItemEvidence = {
+      evidenceId,
+      sourceRecordId: item.record.sourceRecordId,
+      sourceType: item.record.sourceType,
+      title: sanitizedTitle,
+      description: sanitizedDesc,
+      tags: item.record.tags,
+      authorName: item.record.authorName || null,
+      observedAt: item.record.observedAt || null,
+      publishedAt: item.record.publishedAt || null,
+      interactionAt: item.record.interactionAt || null,
+      matchedTopics,
+      metadata: item.record.metadata,
+    };
+    contentItems.push(contentItem);
+
+    // Contextual source prefix for UI display
+    let sourcePrefix = "内容";
+    if (item.record.sourceType === "CONTENT") sourcePrefix = "投稿";
+    else if (item.record.sourceType === "FAVORITE") sourcePrefix = "收藏";
+    else if (item.record.sourceType === "LIKE") sourcePrefix = "点赞";
+    else if (item.record.sourceType === "FOLLOW") sourcePrefix = "关注";
+
+    // Register content item into evidenceMap as well for unified validation & UI modal resolution
+    addEvidence({
+      id: evidenceId,
+      type: "CONTENT_ITEM",
+      label: sanitizedTitle ? `${sourcePrefix}[${sanitizedTitle.slice(0, 24)}]` : `${sourcePrefix}[${item.record.sourceRecordId}]`,
+      value: sanitizedTitle || item.record.sourceRecordId,
+      sourceKey: `contentItems[${item.record.sourceRecordId}]`,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 6. Behavior Matrix & Temporal Patterns
+  // -------------------------------------------------------------------------
+  const behaviorAnalysis = computeBehaviorTopicMatrix(
+    result.extractedRecords || [],
+    result.diagnostics.sourceTypeStats
+  );
+
+  // -------------------------------------------------------------------------
+  // 7. Diagnostics Summary
   // -------------------------------------------------------------------------
   const diagnosticsSummary: ReportDiagnosticsSummary = {
     totalInput,
@@ -344,22 +493,35 @@ export function buildDeterministicReportInput(
     taxonomyVersion: result.taxonomyVersion || "1.0.0",
     observations,
     evidence: Array.from(evidenceMap.values()),
+    contentItems: contentItems.length > 0 ? contentItems : undefined,
+    behaviorTopicMatrix: behaviorAnalysis.matrix.length > 0 ? behaviorAnalysis.matrix : undefined,
+    temporalPatterns: behaviorAnalysis.temporalPatterns.length > 0 ? behaviorAnalysis.temporalPatterns : undefined,
+    sourceAvailability: behaviorAnalysis.sourceAvailability,
+    samplingMetadata: behaviorAnalysis.samplingMetadata.length > 0 ? behaviorAnalysis.samplingMetadata : undefined,
     limitations,
     diagnosticsSummary,
   };
 }
 
 /**
- * Validates a DeterministicReportInput for contract conformity, dangling references,
- * non-finite numbers, duplicate IDs, and zero sensitive leaks.
+ * Validates a DeterministicReportInput for contract conformity, strict structural integrity
+ * (zero unknown fields), dangling references, non-finite numbers, duplicate IDs, and zero sensitive leaks.
  */
 export function validateDeterministicReportInput(
   input: unknown
 ): ReportInputValidationResult {
   const errors: string[] = [];
 
-  if (!input || typeof input !== "object") {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { valid: false, errors: ["报告输入对象必须为非空对象"] };
+  }
+
+  // 0. Strict Root Object Keys Whitelist Check
+  const rootKeys = Object.keys(input as unknown as Record<string, unknown>);
+  for (const key of rootKeys) {
+    if (!ALLOWED_ROOT_KEYS.has(key)) {
+      errors.push(`根对象包含未知或非法的多余字段: '${key}'`);
+    }
   }
 
   const report = input as DeterministicReportInput;
@@ -376,6 +538,68 @@ export function validateDeterministicReportInput(
     errors.push("taxonomyVersion 必须为有效非空字符串");
   }
 
+  // 2.5. Content Items validation (if present)
+  if (report.contentItems !== undefined) {
+    if (!Array.isArray(report.contentItems)) {
+      errors.push("contentItems 必须为数组");
+    } else {
+      for (let i = 0; i < report.contentItems.length; i++) {
+        const item = report.contentItems[i];
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          errors.push(`contentItems[${i}] 必须为有效对象`);
+          continue;
+        }
+        const itemKeys = Object.keys(item as unknown as Record<string, unknown>);
+        for (const key of itemKeys) {
+          if (!ALLOWED_CONTENT_ITEM_KEYS.has(key)) {
+            errors.push(`contentItems[${i}] 包含未知或非法的多余字段: '${key}'`);
+          }
+        }
+        if (typeof item.evidenceId !== "string" || !item.evidenceId.trim()) {
+          errors.push(`contentItems[${i}].evidenceId 必须为非空字符串`);
+        } else if (!item.evidenceId.startsWith("ev_item_")) {
+          errors.push(`contentItems[${i}].evidenceId 必须以 'ev_item_' 开头`);
+        }
+      }
+    }
+  }
+
+  // 2.6. Sampling Metadata validation (if present)
+  if (report.samplingMetadata !== undefined) {
+    if (!Array.isArray(report.samplingMetadata)) {
+      errors.push("samplingMetadata 必须为数组");
+    } else {
+      for (let i = 0; i < report.samplingMetadata.length; i++) {
+        const sm = report.samplingMetadata[i];
+        if (!sm || typeof sm !== "object" || Array.isArray(sm)) {
+          errors.push(`samplingMetadata[${i}] 必须为有效对象`);
+          continue;
+        }
+        const smKeys = Object.keys(sm as unknown as Record<string, unknown>);
+        for (const key of smKeys) {
+          if (!ALLOWED_SAMPLING_METADATA_KEYS.has(key)) {
+            errors.push(`samplingMetadata[${i}] 包含未知或非法的多余字段: '${key}'`);
+          }
+        }
+        if (typeof sm.sourceType !== "string") {
+          errors.push(`samplingMetadata[${i}].sourceType 必须为字符串`);
+        }
+        if (typeof sm.collectedCount !== "number" || !isFinite(sm.collectedCount)) {
+          errors.push(`samplingMetadata[${i}].collectedCount 必须为有限数值`);
+        }
+        if (typeof sm.analyzedCount !== "number" || !isFinite(sm.analyzedCount)) {
+          errors.push(`samplingMetadata[${i}].analyzedCount 必须为有限数值`);
+        }
+        if (typeof sm.isComplete !== "boolean") {
+          errors.push(`samplingMetadata[${i}].isComplete 必须为布尔值`);
+        }
+        if (typeof sm.timeWindowDescription !== "string") {
+          errors.push(`samplingMetadata[${i}].timeWindowDescription 必须为字符串`);
+        }
+      }
+    }
+  }
+
   // 3. Evidence validation
   const seenEvIds = new Set<string>();
   if (!Array.isArray(report.evidence)) {
@@ -383,10 +607,19 @@ export function validateDeterministicReportInput(
   } else {
     for (let i = 0; i < report.evidence.length; i++) {
       const ev = report.evidence[i];
-      if (!ev || typeof ev !== "object") {
+      if (!ev || typeof ev !== "object" || Array.isArray(ev)) {
         errors.push(`evidence[${i}] 必须为有效对象`);
         continue;
       }
+
+      // Strict Evidence Keys Whitelist Check
+      const evKeys = Object.keys(ev as unknown as Record<string, unknown>);
+      for (const key of evKeys) {
+        if (!ALLOWED_EVIDENCE_KEYS.has(key)) {
+          errors.push(`evidence[${i}] (${ev.id || i}) 包含未知或非法的多余字段: '${key}'`);
+        }
+      }
+
       if (typeof ev.id !== "string" || !ev.id.trim()) {
         errors.push(`evidence[${i}].id 必须为非空字符串`);
       } else if (seenEvIds.has(ev.id)) {
@@ -443,10 +676,21 @@ export function validateDeterministicReportInput(
     const seenObsIds = new Set<string>();
     for (let i = 0; i < report.observations.length; i++) {
       const obs = report.observations[i];
-      if (!obs || typeof obs !== "object") {
+      if (!obs || typeof obs !== "object" || Array.isArray(obs)) {
         errors.push(`observations[${i}] 必须为有效对象`);
         continue;
       }
+
+      // Strict Observation Keys Whitelist Check
+      const obsKeys = Object.keys(obs as unknown as Record<string, unknown>);
+      for (const key of obsKeys) {
+        if (!ALLOWED_OBSERVATION_KEYS.has(key)) {
+          errors.push(
+            `observations[${i}] (${obs.id || i}) 包含未知或非法的多余字段: '${key}'`
+          );
+        }
+      }
+
       if (typeof obs.id !== "string" || !obs.id.trim()) {
         errors.push(`observations[${i}].id 必须为非空字符串`);
       } else if (seenObsIds.has(obs.id)) {
@@ -505,10 +749,19 @@ export function validateDeterministicReportInput(
   }
 
   // 6. DiagnosticsSummary validation
-  if (!report.diagnosticsSummary || typeof report.diagnosticsSummary !== "object") {
+  if (!report.diagnosticsSummary || typeof report.diagnosticsSummary !== "object" || Array.isArray(report.diagnosticsSummary)) {
     errors.push("diagnosticsSummary 必须为有效对象");
   } else {
     const ds = report.diagnosticsSummary;
+
+    // Strict DiagnosticsSummary Keys Whitelist Check
+    const dsKeys = Object.keys(ds as unknown as Record<string, unknown>);
+    for (const key of dsKeys) {
+      if (!ALLOWED_DIAGNOSTICS_SUMMARY_KEYS.has(key)) {
+        errors.push(`diagnosticsSummary 包含未知或非法的多余字段: '${key}'`);
+      }
+    }
+
     if (typeof ds.totalInput !== "number" || isNaN(ds.totalInput) || !isFinite(ds.totalInput)) {
       errors.push("diagnosticsSummary.totalInput 必须为有限数值");
     }

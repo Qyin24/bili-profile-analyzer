@@ -4,6 +4,9 @@ import { UpdateTaskDto } from "@/types/task-api";
 /**
  * Ordered pipeline stages index (0 to 8).
  * Ensures sequential monotonic progress without stage regression.
+ *
+ * COLLECT -> NORMALIZE -> CLEAN -> EXTRACT -> AGGREGATE ->
+ * STATISTICAL_ANALYSIS -> AI_ANALYSIS -> SYNTHESIS -> REPORT
  */
 export const PIPELINE_STAGE_ORDER: Record<PipelineStage, number> = {
   COLLECT: 0,
@@ -27,7 +30,10 @@ export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = [
 ] as const;
 
 /**
- * Allowed status transitions state machine.
+ * Allowed status transitions state machine:
+ * - PENDING -> RUNNING / CANCELLED
+ * - RUNNING -> RUNNING / COMPLETED / FAILED / CANCELLED
+ * - COMPLETED, FAILED, CANCELLED are terminal
  */
 export const ALLOWED_STATUS_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   PENDING: ["PENDING", "RUNNING", "CANCELLED"],
@@ -69,9 +75,11 @@ export class TaskLifecycleValidationError extends Error {
  * 2. Terminal tasks (COMPLETED, FAILED, CANCELLED) cannot be updated.
  * 3. Status transitions must follow ALLOWED_STATUS_TRANSITIONS.
  * 4. Pipeline stages must not regress (PIPELINE_STAGE_ORDER).
- * 5. Progress percentage must not regress.
- * 6. PENDING state must have pipelineStage='COLLECT', progress=0, outcome='NONE'.
+ * 5. Progress percentage must be 0-100 integer and not regress.
+ * 6. PENDING state must have pipelineStage='COLLECT', progress=0, outcome='NONE', completedAt=null.
  * 7. COMPLETED state must have pipelineStage='REPORT', progress=100, outcome in ['FULL', 'PARTIAL'], and a valid non-null completedAt.
+ * 8. FAILED and CANCELLED states must have outcome='NONE' and a valid non-null completedAt.
+ * 9. RUNNING state cannot have outcome='FULL' or 'PARTIAL' (must be 'NONE').
  */
 export function validateTaskLifecycleTransition(
   current: TaskLifecycleState,
@@ -97,10 +105,17 @@ export function validateTaskLifecycleTransition(
 
   // 2. Terminal State Guard
   if (TERMINAL_TASK_STATUSES.includes(current.taskStatus)) {
+    if (patch.dataSourceRuns !== undefined) {
+      return {
+        valid: false,
+        code: "TERMINAL_TASK_DATA_SOURCE_MUTATION",
+        message: `任务已处于终态 [${current.taskStatus}]，不可修改或替换数据源执行记录。`,
+      };
+    }
     return {
       valid: false,
       code: "TERMINAL_STATE_IMMUTABLE",
-      message: `任务已处于终态 [${current.taskStatus}]，不可再次更新状态、进度或数据源。`,
+      message: `任务已处于终态 [${current.taskStatus}]，不可再次更新状态、进度或阶段。`,
     };
   }
 
@@ -133,7 +148,22 @@ export function validateTaskLifecycleTransition(
     };
   }
 
-  // 5. Progress Monotonicity (No Progress Regression)
+  // 5. Progress Monotonicity & Range Validation
+  if (patch.progress !== undefined) {
+    if (
+      typeof patch.progress !== "number" ||
+      !Number.isInteger(patch.progress) ||
+      patch.progress < 0 ||
+      patch.progress > 100
+    ) {
+      return {
+        valid: false,
+        code: "INVALID_PROGRESS_RANGE",
+        message: "progress 必须为 0 至 100 之间的整数。",
+      };
+    }
+  }
+
   if (nextProgress < current.progress) {
     return {
       valid: false,
@@ -141,6 +171,10 @@ export function validateTaskLifecycleTransition(
       message: `任务进度不可倒退：无法从 ${current.progress}% 回退至 ${nextProgress}%。`,
     };
   }
+
+  // Candidate completedAt
+  const candidateCompletedAt =
+    patch.completedAt !== undefined ? patch.completedAt : current.completedAt;
 
   // 6. PENDING State Invariants
   if (nextStatus === "PENDING") {
@@ -165,9 +199,27 @@ export function validateTaskLifecycleTransition(
         message: "PENDING 状态的任务 outcome 必须为 NONE。",
       };
     }
+    if (candidateCompletedAt !== null) {
+      return {
+        valid: false,
+        code: "INVALID_PENDING_COMPLETED_AT",
+        message: "PENDING 状态的任务 completedAt 必须严格为 null。",
+      };
+    }
   }
 
-  // 7. COMPLETED State Invariants
+  // 7. RUNNING State Invariants
+  if (nextStatus === "RUNNING") {
+    if (nextOutcome === "FULL" || nextOutcome === "PARTIAL") {
+      return {
+        valid: false,
+        code: "INVALID_RUNNING_OUTCOME",
+        message: "RUNNING 状态的任务 outcome 不得为 FULL 或 PARTIAL（必须为 NONE）。",
+      };
+    }
+  }
+
+  // 8. COMPLETED State Invariants
   if (nextStatus === "COMPLETED") {
     if (nextStage !== "REPORT") {
       return {
@@ -191,10 +243,6 @@ export function validateTaskLifecycleTransition(
       };
     }
 
-    // Check candidate completedAt
-    const candidateCompletedAt =
-      patch.completedAt !== undefined ? patch.completedAt : current.completedAt;
-
     if (candidateCompletedAt === null || candidateCompletedAt === undefined) {
       return {
         valid: false,
@@ -217,6 +265,56 @@ export function validateTaskLifecycleTransition(
           valid: false,
           code: "COMPLETED_REQUIRES_COMPLETED_AT",
           message: "任务完成时 completedAt 必须为有效日期时间，不能为 null 或空。",
+        };
+      }
+      if (isNaN(new Date(candidateCompletedAt).getTime())) {
+        return {
+          valid: false,
+          code: "INVALID_COMPLETED_AT",
+          message: "completedAt 必须为合法的日期时间字符串。",
+        };
+      }
+    } else {
+      return {
+        valid: false,
+        code: "INVALID_COMPLETED_AT",
+        message: "completedAt 格式无效。",
+      };
+    }
+  }
+
+  // 9. FAILED & CANCELLED State Invariants
+  if (nextStatus === "FAILED" || nextStatus === "CANCELLED") {
+    if (nextOutcome !== "NONE") {
+      return {
+        valid: false,
+        code: "INVALID_TERMINAL_OUTCOME",
+        message: `${nextStatus} 状态的任务 outcome 必须为 NONE。`,
+      };
+    }
+
+    if (candidateCompletedAt === null || candidateCompletedAt === undefined) {
+      return {
+        valid: false,
+        code: "TERMINAL_REQUIRES_COMPLETED_AT",
+        message: `${nextStatus} 状态的任务 completedAt 必须为有效日期时间，不能为 null 或空。`,
+      };
+    }
+
+    if (candidateCompletedAt instanceof Date) {
+      if (isNaN(candidateCompletedAt.getTime())) {
+        return {
+          valid: false,
+          code: "INVALID_COMPLETED_AT",
+          message: "completedAt 必须为有效的 Date 对象。",
+        };
+      }
+    } else if (typeof candidateCompletedAt === "string") {
+      if (!candidateCompletedAt.trim()) {
+        return {
+          valid: false,
+          code: "TERMINAL_REQUIRES_COMPLETED_AT",
+          message: `${nextStatus} 状态的任务 completedAt 必须为有效日期时间，不能为 null 或空。`,
         };
       }
       if (isNaN(new Date(candidateCompletedAt).getTime())) {

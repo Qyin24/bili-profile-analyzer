@@ -4,8 +4,7 @@ import {
   createTaskWithSnapshot,
   serializeTaskSummary,
   TASK_SUMMARY_PRISMA_INCLUDE,
-  SelfProvidedConsentRequiredError,
-  SelfProfileValidationError,
+  mapTaskErrorToResponse,
 } from "@/lib/self-profile-service";
 import { CreateTaskDto, ApiErrorResponse } from "@/types/task-api";
 
@@ -58,36 +57,6 @@ export async function POST(request: NextRequest) {
     const createdTaskSummary = await createTaskWithSnapshot(body);
     return NextResponse.json(createdTaskSummary, { status: 201 });
   } catch (err: unknown) {
-    if (err instanceof SelfProvidedConsentRequiredError) {
-      const errorResponse: ApiErrorResponse = {
-        error: {
-          code: err.code,
-          message: err.message,
-          details: {
-            activeFieldsCount: err.activeFieldsCount,
-          },
-        },
-      };
-      return NextResponse.json(errorResponse, { status: 400 });
-    }
-
-    if (err instanceof SelfProfileValidationError) {
-      const errorResponse: ApiErrorResponse = {
-        error: {
-          code: err.code,
-          message: err.message,
-        },
-      };
-      return NextResponse.json(errorResponse, { status: 400 });
-    }
-
-    console.error("POST /api/tasks error:", err);
-    const errorResponse: ApiErrorResponse = {
-      error: {
-        code: "INTERNAL_SERVER_ERROR",
-        message: "创建分析任务失败",
-      },
-    };
-    return NextResponse.json(errorResponse, { status: 500 });
+    return mapTaskErrorToResponse(err);
   }
 }

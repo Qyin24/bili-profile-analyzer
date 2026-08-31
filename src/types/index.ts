@@ -1,5 +1,5 @@
 /**
- * BiliProfile Analyzer — Core Common Type Definitions (Phase 1)
+ * BiliProfile Analyzer — Core Common Type Definitions
  */
 
 export interface NavItem {
@@ -14,3 +14,6 @@ export interface AppConfig {
   description: string;
   version: string;
 }
+
+export * from "./persistence";
+export * from "./analysis";

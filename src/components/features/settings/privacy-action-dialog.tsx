@@ -1,140 +1,100 @@
 "use client";
 
 import * as React from "react";
-import { Button } from "@/components/ui/button";
-import {
-  ShieldAlert,
-  Trash2,
-  Lock,
-  X,
-  AlertTriangle,
-} from "lucide-react";
+import { Trash2, X } from "lucide-react";
 
 interface PrivacyActionDialogProps {
-  actionType: "REVOKE_FUTURE" | "PURGE_DATA" | null;
+  isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
-  isProcessing?: boolean;
+  onConfirm?: () => void;
+  onConfirmPurge?: () => void;
 }
 
 export function PrivacyActionDialog({
-  actionType,
+  isOpen,
   onClose,
   onConfirm,
-  isProcessing = false,
+  onConfirmPurge,
 }: PrivacyActionDialogProps) {
-  // Listen for Escape key
   React.useEffect(() => {
-    if (!actionType) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isProcessing) {
+      if (e.key === "Escape" && isOpen) {
         onClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actionType, onClose, isProcessing]);
+  }, [isOpen, onClose]);
 
-  if (!actionType) return null;
-
-  const isRevoke = actionType === "REVOKE_FUTURE";
+  if (!isOpen) return null;
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="privacy-dialog-title"
-      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
     >
-      <div className="bg-card w-full max-w-md rounded-3xl border border-border/80 shadow-warm-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Modal Header */}
-        <div className="p-5 border-b border-border/60 flex items-center justify-between bg-muted/20">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="privacy-dialog-title"
+        className="bg-card w-full max-w-md rounded-3xl p-6 sm:p-7 border border-destructive/30 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Dialog Header */}
+        <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                isRevoke
-                  ? "bg-amber-100 text-amber-800"
-                  : "bg-rose-100 text-rose-800"
-              }`}
-            >
-              {isRevoke ? <Lock className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+            <div className="w-10 h-10 rounded-2xl bg-destructive/15 text-destructive flex items-center justify-center shrink-0">
+              <Trash2 className="w-5 h-5" />
             </div>
-            <h3 id="privacy-dialog-title" className="text-sm font-bold text-foreground">
-              {isRevoke ? "停止以后使用确认" : "彻底删除个人说明与快照确认"}
-            </h3>
+            <div>
+              <h3 id="privacy-dialog-title" className="text-base font-bold text-foreground">
+                确认删除自述与关联历史？
+              </h3>
+              <p className="text-xs text-destructive font-medium">删除自述信息并作废关联报告 (演示)</p>
+            </div>
           </div>
+
           <button
+            type="button"
             onClick={onClose}
-            disabled={isProcessing}
-            aria-label="关闭确认对话框"
-            className="text-muted-foreground hover:text-foreground p-1.5 rounded-full transition-colors cursor-pointer disabled:opacity-50"
+            aria-label="关闭对话框"
+            className="p-1.5 rounded-xl bg-background hover:bg-muted text-muted-foreground hover:text-foreground border border-border/60 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Content */}
-        <div className="p-5 sm:p-6 space-y-3.5 text-xs sm:text-sm">
-          {isRevoke ? (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 leading-relaxed space-y-1.5">
-              <span className="font-bold flex items-center gap-1.5 text-amber-900">
-                <AlertTriangle className="w-4 h-4 text-amber-700" />
-                <span>仅停止未来新分析使用</span>
-              </span>
-              <p className="text-xs text-amber-900/90 leading-relaxed">
-                确认后，后续新发起的分析任务将不再使用这些个人说明；本地数据库中历史任务的快照将继续保留。
-              </p>
-            </div>
-          ) : (
-            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 leading-relaxed space-y-1.5">
-              <span className="font-bold flex items-center gap-1.5 text-rose-900">
-                <ShieldAlert className="w-4 h-4 text-rose-700" />
-                <span>彻底清除该项信息与历史快照</span>
-              </span>
-              <p className="text-xs text-rose-900/90 leading-relaxed">
-                确认后，将从本地数据库中永久删除该个人说明及关联的历史任务快照字段，并将受影响的任务标记为“需要重新生成报告”。此操作不可撤销。
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-1 text-xs text-muted-foreground p-1">
-            <span className="font-medium text-foreground">本地数据说明:</span>
-            <ul className="list-disc list-inside space-y-0.5 text-[11px] text-muted-foreground">
-              <li>数据仅保存在当前机器的本地 SQLite 数据库中。</li>
-              <li>不向任何远程服务器或第三方平台上传。</li>
-            </ul>
+        {/* Warning Explanation */}
+        <div className="space-y-3 text-xs text-muted-foreground leading-relaxed">
+          <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-foreground font-medium text-[11px] space-y-1.5">
+            <div className="font-bold text-destructive">⚠️ 演示交互与含义说明</div>
+            <p className="leading-relaxed">
+              此操作用于演示“删除自述与历史”的处理流程。确认后将在当前演示中清空表单并作废示例报告，刷新页面后可恢复初始示例。
+            </p>
           </div>
         </div>
 
-        {/* Modal Actions */}
-        <div className="p-4 sm:p-5 border-t border-border/40 bg-muted/10 flex items-center justify-end gap-2.5">
-          <Button
+        {/* Action Buttons */}
+        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border/50">
+          <button
             type="button"
-            variant="outline"
-            size="sm"
             onClick={onClose}
-            disabled={isProcessing}
-            className="text-xs rounded-xl cursor-pointer"
+            className="px-4 py-2 rounded-xl text-xs font-semibold bg-background hover:bg-muted text-foreground border border-border/60 transition-colors"
           >
             取消
-          </Button>
-          <Button
+          </button>
+
+          <button
             type="button"
-            variant={isRevoke ? "default" : "destructive"}
-            size="sm"
-            onClick={onConfirm}
-            disabled={isProcessing}
-            className="text-xs gap-1.5 rounded-xl cursor-pointer font-semibold"
+            onClick={() => {
+              if (onConfirm) onConfirm();
+              if (onConfirmPurge) onConfirmPurge();
+              onClose();
+            }}
+            className="px-4 py-2 rounded-xl text-xs font-semibold bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors shadow-sm cursor-pointer"
           >
-            {isProcessing ? (
-              <span>处理中...</span>
-            ) : (
-              <>
-                {isRevoke ? <Lock className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
-                <span>{isRevoke ? "确认停止使用" : "确认彻底删除"}</span>
-              </>
-            )}
-          </Button>
+            确认删除这项信息及历史
+          </button>
         </div>
       </div>
     </div>

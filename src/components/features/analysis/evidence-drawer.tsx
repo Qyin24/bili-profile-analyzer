@@ -2,158 +2,147 @@
 
 import * as React from "react";
 import { ReportEvidenceSnapshot } from "@/types/analysis";
-import {
-  X,
-  FileCheck,
-  Calendar,
-  CheckCircle2,
-  Lock,
-  ChevronDown,
-  ChevronUp,
-  Terminal,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { X, ShieldCheck, Clock, FileText, Database, Bookmark, BarChart2 } from "lucide-react";
 
 interface EvidenceDrawerProps {
   evidence: ReportEvidenceSnapshot | null;
+  isOpen: boolean;
   onClose: () => void;
 }
 
-export function EvidenceDrawer({ evidence, onClose }: EvidenceDrawerProps) {
-  const [showTechnicalDetails, setShowTechnicalDetails] = React.useState(false);
-
+export function EvidenceDrawer({ evidence, isOpen, onClose }: EvidenceDrawerProps) {
   // Close on Escape key
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && isOpen) {
         onClose();
       }
     };
-    if (evidence) {
-      window.addEventListener("keydown", handleKeyDown);
-    }
+    window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [evidence, onClose]);
+  }, [isOpen, onClose]);
 
-  if (!evidence) return null;
+  if (!isOpen || !evidence) return null;
 
-  const getFriendlySourceName = (type: string) => {
-    switch (type) {
+  const getSourceTypeInfo = (sourceType: ReportEvidenceSnapshot["sourceType"]) => {
+    switch (sourceType) {
       case "SELF_REPORTED":
-        return "示例自述目标说明";
+        return {
+          label: "你补充的信息",
+          icon: Bookmark,
+          badgeColor: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
+          origin: "由你在本次分析开始前主动填写并授权的自述快照。",
+          limitation: "仅代表你填写时的个人说明，不反映历史长期动态。",
+        };
       case "STATISTICAL_METRIC":
-        return "模拟内容主题统计";
+        return {
+          label: "公开数据统计指标",
+          icon: BarChart2,
+          badgeColor: "bg-primary/15 text-primary border-primary/30",
+          origin: "基于公开可见样本，由统计程序直接汇总计算得出。",
+          limitation: "受限于公开展示的样本数量，可能无法覆盖所有历史互动。",
+        };
       case "FOLLOW_RECORD":
-        return "模拟关注博主样本";
+        return {
+          label: "公开关注内容样本",
+          icon: Database,
+          badgeColor: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
+          origin: "公开主页可见的关注账号列表样本及分类映射。",
+          limitation: "关注仅代表兴趣关注倾向，不能等同于深度参与或职业身份。",
+        };
       case "CONTENT_SAMPLE":
-        return "模拟动态摘录";
+        return {
+          label: "公开动态或投稿样本",
+          icon: FileText,
+          badgeColor: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+          origin: "公开主页展示的动态或投稿内容文本与标签样本。",
+          limitation: "发布内容受时间周期与发布意愿影响，具有一定的时效性。",
+        };
       default:
-        return "模拟数据快照";
+        return {
+          label: "参考依据",
+          icon: ShieldCheck,
+          badgeColor: "bg-muted text-muted-foreground border-border",
+          origin: "公开页面样本或主动补充信息。",
+          limitation: "仅作为有限解读参考。",
+        };
     }
   };
 
+  const sourceInfo = getSourceTypeInfo(evidence.sourceType);
+  const BadgeIcon = sourceInfo.icon;
+
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="evidence-drawer-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-3xl bg-card border border-border shadow-warm-lg overflow-hidden animate-in zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="evidence-drawer-title"
+        className="bg-card w-full max-w-lg rounded-3xl p-6 sm:p-7 border border-border shadow-2xl space-y-5 animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 sm:p-6 pb-4 border-b border-border/40 flex items-center justify-between bg-cream-100/60">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shadow-xs">
-              <FileCheck className="w-4 h-4" />
+        <div className="flex items-start justify-between gap-3 pb-3 border-b border-border/50">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${sourceInfo.badgeColor}`}>
+                <BadgeIcon className="w-3.5 h-3.5" />
+                <span>{sourceInfo.label}</span>
+              </span>
             </div>
-            <div>
-              <h2 id="evidence-drawer-title" className="text-base font-bold text-foreground">
-                参考依据详情
-              </h2>
-              <p className="text-xs text-muted-foreground">{getFriendlySourceName(evidence.sourceType)}</p>
-            </div>
+            <h3 id="evidence-drawer-title" className="text-base sm:text-lg font-bold text-foreground pt-1">
+              {evidence.title}
+            </h3>
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={onClose}
             aria-label="关闭参考依据详情"
-            className="w-8 h-8 p-0 rounded-full hover:bg-muted"
+            className="p-2 rounded-xl bg-background hover:bg-muted text-muted-foreground hover:text-foreground border border-border/60 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
-          </Button>
+          </button>
         </div>
 
-        {/* Content Body */}
-        <div className="p-5 sm:p-6 space-y-4 max-h-[75vh] overflow-y-auto">
-          {/* Title & Type */}
-          <div className="space-y-1.5">
-            <span className="inline-block px-2.5 py-0.5 rounded-md bg-sage-100 text-sage-900 text-xs font-semibold">
-              {getFriendlySourceName(evidence.sourceType)}
-            </span>
-            <h3 className="text-sm sm:text-base font-bold text-foreground">{evidence.title}</h3>
+        {/* 1. 参考了什么内容 */}
+        <div className="space-y-1.5">
+          <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5 text-primary" />
+            <span>参考了什么内容</span>
           </div>
-
-          {/* Excerpt / Value Box */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-semibold text-muted-foreground block">内容摘录与数据值:</span>
-            <div className="p-4 rounded-2xl bg-cream-200/90 border border-border/80 text-xs sm:text-sm text-foreground leading-relaxed">
-              {evidence.excerptOrMetricValue}
-            </div>
-          </div>
-
-          {/* Generation and Lock Status */}
-          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-1">
-            <div className="p-2.5 rounded-xl bg-muted/40 flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-primary" />
-              <span>生成时间: {evidence.createdAt}</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-muted/40 flex items-center gap-2">
-              <Lock className="w-3.5 h-3.5 text-primary" />
-              <span>已锁定最小化快照</span>
-            </div>
-          </div>
-
-          {/* Collapsible Technical Details (evidenceId, hash, taskId) */}
-          <div className="pt-2 border-t border-border/40">
-            <button
-              type="button"
-              onClick={() => setShowTechnicalDetails((v) => !v)}
-              className="flex items-center justify-between w-full text-[11px] text-muted-foreground hover:text-foreground py-1 cursor-pointer transition-colors"
-              aria-expanded={showTechnicalDetails}
-            >
-              <span className="flex items-center gap-1.5">
-                <Terminal className="w-3.5 h-3.5" />
-                <span>技术追溯详情 (开发审计)</span>
-              </span>
-              {showTechnicalDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            {showTechnicalDetails && (
-              <div className="mt-2 p-3 rounded-2xl bg-muted/50 border border-border/60 text-[11px] font-mono space-y-1 text-muted-foreground animate-in fade-in duration-200">
-                <p>快照编号 (ID): {evidence.id}</p>
-                <p>实体字段 (evidenceId): {evidence.evidenceId}</p>
-                <p>任务编号 (taskId): {evidence.taskId}</p>
-                <p className="truncate">内容哈希: {evidence.contentHash}</p>
-              </div>
-            )}
+          <div className="p-4 rounded-2xl bg-background/90 border border-border/70 text-xs font-medium text-foreground leading-relaxed shadow-inner">
+            {evidence.excerptOrMetricValue}
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-border/40 bg-muted/20 flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-            <span>示例依据已与报告锁定保存</span>
-          </span>
-          <Button size="sm" onClick={onClose} className="rounded-xl text-xs h-8 px-4">
-            知道了
-          </Button>
+        {/* 2. 这条信息来自哪里 & 3. 为什么只能作为有限解释 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="p-3.5 rounded-2xl bg-background/60 border border-border/60 space-y-1">
+            <span className="font-bold text-foreground text-[11px] block">这条信息来自哪里</span>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              {sourceInfo.origin}
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-background/60 border border-border/60 space-y-1">
+            <span className="font-bold text-foreground text-[11px] block">为什么只能作为有限解释</span>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              {sourceInfo.limitation}
+            </p>
+          </div>
+        </div>
+
+        {/* Footer timestamp & info */}
+        <div className="p-3 rounded-2xl bg-muted/40 border border-border/50 flex items-center justify-between text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <Clock className="w-3 h-3 text-primary" />
+            <span>记录生成时间: {evidence.createdAt}</span>
+          </div>
+          <span className="text-[10px]">受控分析快照</span>
         </div>
       </div>
     </div>

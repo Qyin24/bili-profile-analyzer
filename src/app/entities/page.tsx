@@ -1,20 +1,26 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { TopicDistributionBar } from "@/components/features/entities/topic-distribution-bar";
-import { EntityList } from "@/components/features/entities/entity-list";
+"use client";
 
-export const metadata = {
-  title: "关注内容 · BiliProfile Analyzer",
-  description: "查看分析所涉及的公开关注博主与内容分类",
-};
+import * as React from "react";
+import { AppLayout } from "@/components/layout/app-layout";
+import { EntitiesView } from "@/components/features/entities/entities-view";
+import { useMockTask } from "@/lib/mock-task-context";
 
 export default function EntitiesPage() {
+  const { demoTarget, demoTopicTaxonomy, demoFollowEntities, selfProfile } = useMockTask();
+
   return (
-    <AppShell
-      headerTitle="关注内容"
-      headerSubtitle="查看公开关注博主的主题分类与领域分布"
+    <AppLayout
+      headerTitle="内容主题"
+      headerSubtitle="浏览内容主题与代表性关注内容（受控演示模式）。"
+      showNewAnalysisButton
     >
-      <TopicDistributionBar />
-      <EntityList />
-    </AppShell>
+      <EntitiesView
+        target={demoTarget}
+        topicTaxonomy={demoTopicTaxonomy}
+        entities={demoFollowEntities}
+        selfProfile={selfProfile}
+        isDemo
+      />
+    </AppLayout>
   );
 }

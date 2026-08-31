@@ -6,57 +6,81 @@
 
 ---
 
-## 📌 当前阶段状态：Phase 5.2.2 — 确定性报告输入与证据包构建（纯本地）
+## 📌 当前阶段状态：Phase 5.1 — 持久化任务生命周期约束
 
-> **说明**：当前项目处于 **Phase 5.2.2** 阶段。已在纯函数数据处理流水线之上新增结构化、可追溯且安全的“确定性报告输入与证据包”层（`DeterministicReportInput`）：
-> - **标准化契约与版本控制**：固定顶层 `schemaVersion = "deterministic-report-input/v1"` 与 `taxonomyVersion`；
-> - **结构化客观事实观察 (`observations`)**：面向普通用户的中性事实陈述，涵盖样本规模、最高主题占比、主题分布概览、基于香农熵的多样性离散程度及来源受限说明；
-> - **最小化细粒度证据条目 (`evidence`)**：每个 observation 均必须引用至少一个存在的 evidenceId，彻底杜绝无证据推断与虚假结论；
-> - **客观局限性与诊断摘要 (`limitations` & `diagnosticsSummary`)**：如实陈述数据范围、样本门槛、未分类条目及受限来源标记；
-> - **严格防御与校验机制 (`validateDeterministicReportInput`)**：离线校验悬空引用、重复 ID、非有限数值（NaN/Infinity）、非法 schema 版本以及自述字段零泄露；
-> - **全流程零泄露与零网络**：绝不包含原始长文本正文、自述原文或 `SnapshotField.value`，零 fetch、零外部网络、零数据库写入。
-> 
-> **Phase 5.2.2 核心成果**：
-> - ✅ **报告输入契约定义 (`src/types/processing.ts`)**：
->   - 规定 `DeterministicReportInput`、`ReportObservation`、`ReportEvidence`、`ObservationCategory`、`EvidenceType`、`ReportDiagnosticsSummary` 与 `ReportInputValidationResult`。
-> - ✅ **构建器与校验器实现 (`src/lib/processing/report-input.ts` & `pipeline.ts`)**：
->   - `buildDeterministicReportInput(result)`：将 `DeterministicAnalysisResult` 纯函数转换为证据链闭环的报告输入；
->   - `validateDeterministicReportInput(input)`：独立执行 7 大维度的安全与结构有效性校验。
-> - ✅ **全套离线回归验证 (`npm run test:deterministic-pipeline`)**：
->   - 包含 Phase 5.2 (a~j)、Phase 5.2.1 (k~q) 以及 Phase 5.2.2 专项测试 (r~y) 共 25 项全量测试断言。
-> 
-> **当前阶段边界与明确未包含**：
-> - ⚠️ **产品分析报告（`/analysis`）仍严格展示本地受控示例报告**。
-> - ❌ 尚未接入生产级 Bilibili Connector、数据采集器或爬虫服务。
-> - ❌ 尚未接入真实 LLM / AI SDK / 外部模型 API（将在 Phase 6+ 开展）。
-> - ❌ 严禁使用任何 Cookie、SESSDATA、Token、Wbi 或登录凭证。
+> **说明**：当前项目处于 **Phase 5.1** 阶段。已建立严格的持久化任务生命周期约束与状态机校验机制：
+> - **服务端纯函数生命周期保护**：定义严格的 9 阶段顺序（`COLLECT` → `NORMALIZE` → `CLEAN` → `EXTRACT` → `AGGREGATE` → `STATISTICAL_ANALYSIS` → `AI_ANALYSIS` → `SYNTHESIS` → `REPORT`），由服务端生命周期规则统一保护，拦截阶段倒退、进度倒退、空更新与终态篡改，浏览器不能任意写入彼此矛盾的状态；
+> - **状态转换与终态不可变性**：`PENDING` 仅允许进入 `RUNNING` 或 `CANCELLED`；`RUNNING` 仅允许进入 `COMPLETED`、`FAILED`、`CANCELLED`；`COMPLETED`、`FAILED`、`CANCELLED` 作为终态不可再次修改状态、阶段、进度或数据源执行记录；
+> - **自述快照原子创建与隐私隔离**：继续保持 Phase 5.0 的自述快照原子固化，通用任务接口与序列化器严格执行最小读取与脱敏，自述原文绝不泄露；
+> - **公开数据与报告边界**：公开数据采集能力继续处于离线安全门控拦截状态，尚未接入真实网络；当前报告与画像结果仍为本地受控示例报告，不发起任何外部网络请求与真实 AI 调用。
+
+---
+
+## 💾 数据库开发与配置说明 (PostgreSQL / Prisma)
+
+本项目采用 **Prisma ORM** 与 **PostgreSQL** 数据库（`provider = "postgresql"`）。
+
+### 1. 前置条件 (Prerequisites)
+- **Node.js**：`>= 20.0.0`
+- **PostgreSQL**：`>= 14.0`（用于实际应用数据库迁移与数据持久化）
+
+### 2. 环境变量配置
+1. 复制模板创建本地环境变量文件：
+   ```bash
+   cp .env.example .env.local
+   ```
+2. 在 `.env.local` 中配置真实的 PostgreSQL 连接串：
+   ```env
+   DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE?schema=public"
+   ```
+> ⚠️ **安全警告**：`.env` 与 `.env.local` 均已被 `.gitignore` 忽略，**严禁将包含真实账号密码的 `.env.local` 提交至代码仓库**。
+
+### 3. 常用数据库操作命令
+
+```bash
+# 1. 校验 Prisma Schema 格式与模型规范
+npx prisma validate
+
+# 2. 根据 Prisma Schema 生成类型安全的 Prisma Client
+npx prisma generate
+
+# 3. 在具备 PostgreSQL 数据库连接时应用迁移
+npx prisma migrate deploy
+# 或在开发环境中创建新迁移
+npx prisma migrate dev
+
+# 4. 启动 Prisma Studio 在浏览器中可视化管理数据库
+npx prisma studio
+```
 
 ---
 
 ## 🗺️ 页面与功能架构
 
 ### 1. 页面导航 (Routes)
-- `/` → 自动重定向至 `/dashboard`
-- `/dashboard` → **开始分析**：UID/链接输入、自述授权确认、发起模拟流程、进度反馈与最近分析记录
-- `/entities` → **关注内容**：分析涉及的模拟关注博主列表与分类筛选
-- `/graph` → **关系概览**：直观展示“你 — 内容主题 — 关注博主”三层拓扑图谱
-- `/analysis` → **分析报告**：内容偏好概览、主要主题分布、深度解读、依据抽屉与智能问答
-- `/settings` → **设置**：个人说明补充、单项授权、停止使用与彻底删除管理（真实持久化至 SQLite）
+- `/` → **开始分析**：温暖引导式开始，支持纯数字 UID 与空间主页链接本地解析，3 个可选补充信息字段，4 步自然进度展示
+- `/dashboard` → **我的报告**：历史分析卡片列表、精简概览指标（≤3 张）、自然语言状态与信息完整度、查看报告直达入口
+- `/entities` → **内容主题**：公开内容主题分类与关注内容代表示例，搜索与筛选保留，技术细节折叠
+- `/graph` → **关系概览**：轻量纯 SVG 关系图，通俗展示主题与关注内容之间的联系
+- `/analysis` → **你的内容画像**：基于有限公开与自述快照的结构化报告、分析解读、参考依据抽屉与针对报告问一问
+- `/settings` → **设置**：你补充的信息、分析使用范围、数据与隐私（停止以后使用 Revoke 与 删除这项信息及相关历史结果 Purge）
 
 ### 2. API 路由 (Route Handlers)
-- `GET /api/tasks` → 获取任务脱敏摘要列表（最小读取投影，绝无自述原文）
-- `POST /api/tasks` → 创建或复用 Target，校验自述授权并在事务中新建任务与不可变快照（响应链最小读取回读，返回脱敏摘要）
-- `GET /api/tasks/[id]` → 获取单个分析任务脱敏详情及数据源状态（最小读取投影，无自述原文）
-- `PATCH /api/tasks/[id]` → 执行状态机生命周期校验，事务更新任务状态与数据源记录（最小读取投影，返回脱敏摘要）
-- `GET /api/self-profile` → 获取本地自述字段与授权状态（设置页专用）
-- `PUT /api/self-profile` → 更新本地自述字段（严格白名单与类型校验）
+- `GET /api/targets` → 查询分析目标列表或按 `?uid=` 查询
+- `POST /api/targets` → 验证必要字段并创建/查找分析目标
+- `GET /api/taxonomy` → 获取受控主题分类体系列表
+- `GET /api/tasks` → 获取任务脱敏摘要列表（通过 Repository 层访问）
+- `POST /api/tasks` → 创建新任务与不可变快照（每次创建新任务，不覆盖历史记录）
+- `GET /api/tasks/[id]` → 获取单个分析任务脱敏详情及数据源状态
+- `PATCH /api/tasks/[id]` → 事务更新任务状态与数据源记录（受服务端生命周期约束校验）
+- `GET /api/self-profile` → 获取本地自述字段与授权状态
+- `PUT /api/self-profile` → 更新本地自述字段（严格白名单校验）
 - `POST /api/self-profile/revoke` → 停止个人说明在未来的分析使用（保留历史快照）
-- `DELETE /api/self-profile/purge` → 彻底删除个人说明与关联快照（严格限定当前 Profile，标记历史任务失效）
+- `DELETE /api/self-profile/purge` → 彻底删除个人说明与关联快照（标记历史任务失效）
 
 ---
 
 ## 🛠️ 前置要求 (Prerequisites)
-
 - **Node.js**：`>= 20.0.0`
 - **npm**：`>= 10.0.0`
 
@@ -68,26 +92,51 @@
 | :--- | :--- | :--- |
 | `npm install` | 安装项目依赖项 | 本地/npm 仓库 |
 | `npm run db:generate` | 根据 Prisma Schema 生成 Prisma Client | 纯本地 |
-| `npm run db:migrate` | 应用本地 SQLite 数据库迁移 | 纯本地 |
+| `npm run db:migrate` | 应用 PostgreSQL 数据库迁移 | 纯本地 |
 | `npm run db:seed` | 幂等填充演示种子数据与默认自述配置 | 纯本地 |
 | `npm run db:studio` | 启动 Prisma Studio 可视化管理界面 | 纯本地 |
 | `npm run dev` | 启动本地 Next.js 开发服务器 (`http://localhost:3000`) | 纯本地 |
 | `npm run type-check` | 执行 TypeScript 静态类型检查（`tsc --noEmit`） | 纯本地 |
 | `npm run lint` | 执行 ESLint 代码规范检查 | 纯本地 |
 | `npm run build` | 编译构建生产打包产物 | 纯本地 |
-| `npm run test:deterministic-pipeline` | **[Phase 5.2.2]** 确定性数据处理流水线与报告输入测试套件 | **纯本地内存** |
-| `npm run test:task-lifecycle` | **[Phase 5.1.2]** 任务生命周期状态转换与路由集成测试套件 | **纯本地 SQLite** |
-| `npm run test:self-profile` | **[Phase 5.0.3]** 隔离且最小读取的自述与快照验证套件 | **纯本地 SQLite** |
+| `npm run test:entities-graph-ui` | **[Phase 7.2]** `/entities` 与 `/graph` 页面真实状态收口与受控空状态测试套件 | **纯本地** |
+| `npm run test:analysis-readonly-ui` | **[Phase 6.4]** `/analysis` 页面只读展示已验证任务工件与 view-model 状态测试套件 | **纯本地** |
+| `npm run test:task-ai-workflow` | **[Phase 6.3 & 6.3.1]** 任务级离线 MOCK AI 工件自动生成、终态保护与完成编排测试套件 | **纯本地** |
+| `npm run test:ai-analysis-storage` | **[Phase 6.2]** 任务级 AI 分析工件存储、并发幂等与只读 API 测试套件 | **纯本地** |
+| `npm run test:ai-contract` | **[Phase 6.1]** 离线 AI 分析契约、Provider Registry 与失败关闭边界测试套件 | **纯本地内存** |
+| `npm run test:deterministic-report-storage` | **[Phase 5.2.3.2]** 确定性报告工件存储、并发幂等与严格校验测试套件 | **纯本地** |
+| `npm run test:deterministic-pipeline` | **[Phase 5.2.2 & 5.2.3.2]** 确定性数据处理流水线与报告输入严格校验测试套件 | **纯本地内存** |
+| `npm run test:task-lifecycle` | **[Phase 5.1.2]** 任务生命周期状态转换与路由集成测试套件 | **纯本地** |
+| `npm run test:self-profile` | **[Phase 5.0.3]** 隔离且最小读取的自述与快照验证套件 | **纯本地** |
 | `npm run probe:connector:self-test` | **[Phase 4.3]** 能力门控 Connector 拦截与零伪造自检 | **纯离线，Fake fetch 调用数为 0** |
-| `npm run probe:bilibili:self-test` | **[Phase 4.2.1]** 流式内存安全与参数钳制自检 | **纯离线，零网络请求** |
+| `npm run probe:basic-profile:self-test` | **[Phase 4.4b]** BASIC_PROFILE 最小字段信号离线解析自检 | **纯离线，零网络请求** |
+| `npm run probe:bilibili:profile-label` | **[Phase 4.4]** 个人空间展示名称最小信号探针（双确认环境变量受控单次） | 显式配置下单次受控流式探测 |
+| `npm run probe:bilibili-profile-signal` | **[Phase 4.2]** 最小公开资料信号探针（地址/标题/头像引用结构检测） | 显式配置下单次受控流式探测 |
+| `npm run probe:bilibili:self-test` | **[Phase 4.2.1/4.3.2]** 流式内存安全与严格窗口自检 | **纯离线，零网络请求** |
 | `npm run probe:bilibili` | **[Phase 4.0]** 页面可达性探针（未配环境变量时安全跳过） | 显式配置下单次请求 |
 | `npm start` | 启动生产环境服务 | 纯本地 |
 
 ---
 
+### 3. 公开数据能力验证探针 (Phase 4.0 Probe)
+
+探针默认处于离线安全保护状态，不发起任何网络请求。
+
+- **安全查看帮助（不发起网络请求）**：
+  ```bash
+  npm run probe:bilibili -- --help
+  ```
+
+- **未来受控手动验证格式（仅在具备明确授权时由人工执行，本次阶段不执行）**：
+  ```bash
+  npm run probe:bilibili -- --capability BASIC_PROFILE --url "https://space.bilibili.com/{目标标识}" --confirm-public-only
+  ```
+
+---
+
 ## 🔒 隐私与合规规范
 
-1. **本地存储与最小化授权**：用户填写的自述信息仅存放在本地 SQLite，任务发起时只快照用户明确勾选允许的字段。
+1. **本地存储与最小化授权**：用户填写的自述信息仅存放在受控本地数据库，任务发起时只快照用户明确勾选允许的字段。
 2. **响应链最小读取与脱敏**：通用任务 API 和 Dashboard 仅在数据库层查询 ID 统计元数据，绝不读取或暴露自述原文。
 3. **状态机与不可变终态**：任务生命周期状态单向推进，终态任务防篡改。
 4. **完全可撤回与可删除**：支持“停止未来使用”（保留历史分析）与“彻底清除”（永久清除字段与快照，标记任务失效）两级数据处置权限。

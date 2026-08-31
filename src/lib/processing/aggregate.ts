@@ -55,6 +55,7 @@ export function aggregateTopics(
       recordCount: number;
       evidenceCount: number;
       evidenceRefs: EvidenceRef[];
+      sourceBreakdown: Record<SourceRecordType, number>;
     }
   >();
 
@@ -66,14 +67,23 @@ export function aggregateTopics(
       recordCount: 0,
       evidenceCount: 0,
       evidenceRefs: [],
+      sourceBreakdown: {
+        PROFILE: 0,
+        CONTENT: 0,
+        FAVORITE: 0,
+        LIKE: 0,
+        FOLLOW: 0,
+      },
     });
   }
 
   const allEvidenceRefs: EvidenceRef[] = [];
   const sourceTypeCounts: Record<SourceRecordType, number> = {
     PROFILE: 0,
-    FOLLOW: 0,
     CONTENT: 0,
+    FAVORITE: 0,
+    LIKE: 0,
+    FOLLOW: 0,
   };
 
   for (const item of extractedRecords) {
@@ -86,6 +96,8 @@ export function aggregateTopics(
         agg.recordCount++;
         agg.evidenceCount++;
         agg.evidenceRefs.push(match.evidenceRef);
+        agg.sourceBreakdown[item.record.sourceType] =
+          (agg.sourceBreakdown[item.record.sourceType] ?? 0) + 1;
         allEvidenceRefs.push(match.evidenceRef);
       }
     }
@@ -113,6 +125,7 @@ export function aggregateTopics(
         share,
         evidenceCount: agg.evidenceCount,
         evidenceRefs: agg.evidenceRefs,
+        sourceBreakdown: { ...agg.sourceBreakdown },
       });
     }
   }
@@ -139,7 +152,7 @@ export function aggregateTopics(
     sourceType: SourceRecordType;
     recordCount: number;
     share: number;
-  }[] = (["PROFILE", "FOLLOW", "CONTENT"] as SourceRecordType[]).map((st) => {
+  }[] = (["PROFILE", "CONTENT", "FAVORITE", "LIKE", "FOLLOW"] as SourceRecordType[]).map((st) => {
     const count = sourceTypeCounts[st] ?? 0;
     const share = totalRecords > 0 ? Number((count / totalRecords).toFixed(6)) : 0;
     return {

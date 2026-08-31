@@ -22,6 +22,12 @@ import { computeStatisticalAnalysis } from "./statistical-analysis";
 import { TAXONOMY_VERSION } from "./taxonomy";
 
 export { buildDeterministicReportInput, validateDeterministicReportInput } from "./report-input";
+export {
+  validateBasicProfileInputContract,
+  validateBasicProfileInputBatch,
+  createLocalFixtureBasicProfileInput,
+  basicProfileInputToPublicSourceRecord,
+} from "./basic-profile-input-contract";
 
 export function runDeterministicAnalysis(
   rawRecords: PublicSourceRecord[]
@@ -51,6 +57,7 @@ export function runDeterministicAnalysis(
     recordCounts: aggregates.recordCounts,
     diversityMetrics,
     evidenceRefs: aggregates.evidenceRefs,
+    extractedRecords,
     diagnostics,
     taxonomyVersion: TAXONOMY_VERSION,
   };

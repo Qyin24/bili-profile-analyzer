@@ -20,13 +20,17 @@ export interface NormalizeStepResult {
 
 export const VALID_SOURCE_TYPES: readonly SourceRecordType[] = [
   "PROFILE",
-  "FOLLOW",
   "CONTENT",
+  "FAVORITE",
+  "LIKE",
+  "FOLLOW",
 ] as const;
 
 export const VALID_AVAILABILITIES: readonly RecordAvailability[] = [
   "AVAILABLE",
   "PARTIAL",
+  "PRIVATE",
+  "REQUIRES_AUTH",
   "UNAVAILABLE",
 ] as const;
 
@@ -40,8 +44,10 @@ export function createInitialDiagnostics(): PipelineDiagnostics {
     unclassifiedCount: 0,
     sourceTypeStats: {
       PROFILE: { total: 0, available: 0, partial: 0, unavailable: 0 },
-      FOLLOW: { total: 0, available: 0, partial: 0, unavailable: 0 },
       CONTENT: { total: 0, available: 0, partial: 0, unavailable: 0 },
+      FAVORITE: { total: 0, available: 0, partial: 0, unavailable: 0 },
+      LIKE: { total: 0, available: 0, partial: 0, unavailable: 0 },
+      FOLLOW: { total: 0, available: 0, partial: 0, unavailable: 0 },
     },
     dropReasons: [],
     qualityWarnings: [],
@@ -182,6 +188,24 @@ export function normalizeRecords(
       }
     }
 
+    // Standardize publishedAt
+    let publishedAt: string | null = null;
+    if (raw.publishedAt !== undefined && raw.publishedAt !== null) {
+      const d = raw.publishedAt instanceof Date ? raw.publishedAt : new Date(raw.publishedAt);
+      if (!isNaN(d.getTime())) {
+        publishedAt = d.toISOString();
+      }
+    }
+
+    // Standardize interactionAt
+    let interactionAt: string | null = null;
+    if (raw.interactionAt !== undefined && raw.interactionAt !== null) {
+      const d = raw.interactionAt instanceof Date ? raw.interactionAt : new Date(raw.interactionAt);
+      if (!isNaN(d.getTime())) {
+        interactionAt = d.toISOString();
+      }
+    }
+
     const hasAnalyzableText =
       title.length > 0 || description.length > 0 || standardizedTags.length > 0;
 
@@ -196,9 +220,12 @@ export function normalizeRecords(
       tags: standardizedTags,
       authorName,
       observedAt,
+      publishedAt,
+      interactionAt,
       sourceUrl,
       availability,
       hasAnalyzableText,
+      metadata: raw.metadata,
     });
   }
 

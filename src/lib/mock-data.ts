@@ -473,3 +473,100 @@ export const MOCK_QA_PAIRS: MockQAPair[] = [
     referencedEvidenceIds: ["ev-dynamic-sample-01"],
   },
 ];
+
+export interface PipelineStageConfig {
+  stage: import("@/types/analysis").PipelineStage;
+  name: string;
+  enName: string;
+  description: string;
+  stepNumber: number;
+}
+
+export const PIPELINE_STAGES_CONFIG: PipelineStageConfig[] = [
+  {
+    stage: "COLLECT",
+    name: "准备演示样本",
+    enName: "Collect",
+    description: "加载演示基础资料与模拟数据样本 (Mock)",
+    stepNumber: 1,
+  },
+  {
+    stage: "NORMALIZE",
+    name: "格式归一化",
+    enName: "Normalize",
+    description: "按白名单转换为领域统一数据结构 (Mock)",
+    stepNumber: 2,
+  },
+  {
+    stage: "CLEAN",
+    name: "清洗与去噪",
+    enName: "Clean",
+    description: "过滤无效标记、官方机器人与去噪 (Mock)",
+    stepNumber: 3,
+  },
+  {
+    stage: "EXTRACT",
+    name: "整理示例主题",
+    enName: "Extract",
+    description: "受控规则映射为 TopicAssignment 分类记录 (Mock)",
+    stepNumber: 4,
+  },
+  {
+    stage: "AGGREGATE",
+    name: "频次聚合",
+    enName: "Aggregate",
+    description: "多维受控分类频次与时段矩阵聚合 (Mock)",
+    stepNumber: 5,
+  },
+  {
+    stage: "STATISTICAL_ANALYSIS",
+    name: "确定性统计",
+    enName: "Statistical Analysis",
+    description: "程序严格计算分类占比、排行与多样性指数 (Mock)",
+    stepNumber: 6,
+  },
+  {
+    stage: "AI_ANALYSIS",
+    name: "AI 语义解读",
+    enName: "AI Analysis",
+    description: "基于统计快照与自述进行分层结构化归纳 (Mock)",
+    stepNumber: 7,
+  },
+  {
+    stage: "SYNTHESIS",
+    name: "证据快照固化",
+    enName: "Synthesis",
+    description: "提取并固化最小化 ReportEvidenceSnapshot (Mock)",
+    stepNumber: 8,
+  },
+  {
+    stage: "REPORT",
+    name: "生成示例报告",
+    enName: "Report",
+    description: "组装生成分层结构化演示报告视图 (Mock)",
+    stepNumber: 9,
+  },
+];
+
+export const MOCK_INITIAL_TASK: AnalysisTaskMock = {
+  id: "task-mock-init-01",
+  targetId: "target-demo-01",
+  targetName: "演示分析目标 (202688)",
+  platformUid: "202688",
+  taskStatus: "RUNNING",
+  pipelineStage: "COLLECT",
+  outcome: "NONE",
+  progress: 11,
+  currentStageMessage: "正在准备演示数据样本 (阶段 1/9: COLLECT)...",
+  createdAt: "2026-08-28 10:00:00",
+  dataSourceRuns: [
+    {
+      id: "ds-mock-01",
+      taskId: "task-mock-init-01",
+      sourceName: "演示基础资料",
+      status: "SUCCEEDED",
+      recordsCount: 1,
+      durationMs: 120,
+    },
+  ],
+};

@@ -192,14 +192,14 @@ async function runPipelineVerification() {
     ];
     const resD = runDeterministicAnalysis(mixedMatchInput);
     const tagEvidence = resD.evidenceRefs.find((e) => e.matchType === "TAG" && e.matchedTopicId === "anime");
-    const kwEvidence = resD.evidenceRefs.find((e) => e.matchType === "KEYWORD" && e.matchedTopicId === "tech_ai");
+    const kwEvidence = resD.evidenceRefs.find((e) => (e.matchType === "KEYWORD" || e.matchType === "TITLE" || e.matchType === "DESCRIPTION") && e.matchedTopicId === "tech_ai");
     const passD =
       tagEvidence !== undefined &&
       tagEvidence.sourceRecordId === "tag_sample" &&
       kwEvidence !== undefined &&
       kwEvidence.sourceRecordId === "kw_sample";
     console.log(`  - TAG 证据追溯: ${tagEvidence ? "✅" : "❌"} (term=${tagEvidence?.matchedTerm})`);
-    console.log(`  - KEYWORD 证据追溯: ${kwEvidence ? "✅" : "❌"} (term=${kwEvidence?.matchedTerm})`);
+    console.log(`  - KEYWORD/TITLE 证据追溯: ${kwEvidence ? "✅" : "❌"} (term=${kwEvidence?.matchedTerm})`);
     if (!passD) allPassed = false;
 
     // --- Test e: Zero Hallucination (Unmatched remains UNCLASSIFIED) ---
@@ -443,7 +443,8 @@ async function runPipelineVerification() {
       },
     ];
     const resQ = runDeterministicAnalysis(sentinelInput);
-    const jsonQ = JSON.stringify(resQ);
+    const repSentinelQ = buildDeterministicReportInput(resQ);
+    const jsonQ = JSON.stringify(repSentinelQ);
     const passQ = !jsonQ.includes(SENTINEL_SECRET);
     console.log(`  - 哨兵文本零泄露验证 (${SENTINEL_SECRET.slice(0, 20)}...): ${passQ ? "✅ 通过" : "❌ 失败"}`);
     if (!passQ) allPassed = false;
@@ -694,8 +695,10 @@ async function runPipelineVerification() {
         ...resA1.diagnostics,
         sourceTypeStats: {
           PROFILE: { total: 1, available: 1, partial: 0, unavailable: 0 },
-          FOLLOW: { total: 1, available: 1, partial: 0, unavailable: 0 },
           CONTENT: { total: 4, available: 4, partial: 0, unavailable: 0 },
+          FAVORITE: { total: 0, available: 0, partial: 0, unavailable: 0 },
+          LIKE: { total: 0, available: 0, partial: 0, unavailable: 0 },
+          FOLLOW: { total: 1, available: 1, partial: 0, unavailable: 0 },
         },
         qualityWarnings: [
           {
@@ -799,9 +802,66 @@ async function runPipelineVerification() {
     console.log(`  - 严格校验器综合防御判定: ${passZ3 ? "✅ 通过" : "❌ 失败"}`);
     if (!passZ3) allPassed = false;
 
+    // --- Test z4: Strict Rejection of Any Unknown or Extra Fields (Phase 5.2.3.2) ---
+    console.log("\n[测试 z4] 严格结构校验：严密拒绝根对象、观察项、证据项及诊断摘要中的任何未知多余字段...");
+
+    // Extra field in root object
+    const extraRootReport = {
+      ...repR1,
+      unknownRootProp: "EXTRA_ROOT_VALUE",
+    };
+    const valExtraRoot = validateDeterministicReportInput(extraRootReport);
+
+    // Extra field in observation
+    const extraObsReport = {
+      ...repR1,
+      observations: [
+        {
+          ...repR1.observations[0],
+          unknownObsProp: "EXTRA_OBS_VALUE",
+        },
+      ],
+    };
+    const valExtraObs = validateDeterministicReportInput(extraObsReport);
+
+    // Extra field in evidence
+    const extraEvReport = {
+      ...repR1,
+      evidence: [
+        {
+          ...repR1.evidence[0],
+          unknownEvProp: "EXTRA_EV_VALUE",
+        },
+      ],
+    };
+    const valExtraEv = validateDeterministicReportInput(extraEvReport);
+
+    // Extra field in diagnosticsSummary
+    const extraDsReport = {
+      ...repR1,
+      diagnosticsSummary: {
+        ...repR1.diagnosticsSummary,
+        unknownDsProp: "EXTRA_DS_VALUE",
+      },
+    };
+    const valExtraDs = validateDeterministicReportInput(extraDsReport);
+
+    const passZ4 =
+      !valExtraRoot.valid && valExtraRoot.errors.some((e) => e.includes("根对象包含未知或非法的多余字段: 'unknownRootProp'")) &&
+      !valExtraObs.valid && valExtraObs.errors.some((e) => e.includes("包含未知或非法的多余字段: 'unknownObsProp'")) &&
+      !valExtraEv.valid && valExtraEv.errors.some((e) => e.includes("包含未知或非法的多余字段: 'unknownEvProp'")) &&
+      !valExtraDs.valid && valExtraDs.errors.some((e) => e.includes("diagnosticsSummary 包含未知或非法的多余字段: 'unknownDsProp'"));
+
+    console.log(`  - 根对象未知字段拦截: ${!valExtraRoot.valid ? "✅" : "❌"}`);
+    console.log(`  - observation 未知字段拦截: ${!valExtraObs.valid ? "✅" : "❌"}`);
+    console.log(`  - evidence 未知字段拦截: ${!valExtraEv.valid ? "✅" : "❌"}`);
+    console.log(`  - diagnosticsSummary 未知字段拦截: ${!valExtraDs.valid ? "✅" : "❌"}`);
+    console.log(`  - 严格未知字段白名单防御综合判定: ${passZ4 ? "✅ 通过" : "❌ 失败"}`);
+    if (!passZ4) allPassed = false;
+
     console.log("\n=================================================");
     if (allPassed) {
-      console.log("🎉 Phase 5.2.2 确定性报告输入与证据包测试全部通过！");
+      console.log("🎉 Phase 5.2.2 & 5.2.3.2 确定性报告输入与证据包测试全部通过！");
       console.log("=================================================\n");
     } else {
       console.error("❌ 部分确定性流水线或报告输入测试未通过，请检查。");

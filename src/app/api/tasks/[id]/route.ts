@@ -300,17 +300,17 @@ export async function PATCH(
 
     // Build update payload strictly using the EXACT candidateCompletedAt that was validated
     const updateData: {
-      taskStatus?: string;
-      pipelineStage?: string;
-      outcome?: string;
+      taskStatus?: TaskStatus;
+      pipelineStage?: PipelineStage;
+      outcome?: TaskOutcome;
       progress?: number;
       currentStageMessage?: string;
       completedAt?: Date | null;
     } = {};
 
-    if (body.taskStatus !== undefined) updateData.taskStatus = body.taskStatus;
-    if (body.pipelineStage !== undefined) updateData.pipelineStage = body.pipelineStage;
-    if (body.outcome !== undefined) updateData.outcome = body.outcome;
+    if (body.taskStatus !== undefined) updateData.taskStatus = body.taskStatus as TaskStatus;
+    if (body.pipelineStage !== undefined) updateData.pipelineStage = body.pipelineStage as PipelineStage;
+    if (body.outcome !== undefined) updateData.outcome = body.outcome as TaskOutcome;
     if (body.progress !== undefined) updateData.progress = body.progress;
     if (body.currentStageMessage !== undefined) updateData.currentStageMessage = body.currentStageMessage;
     if (candidateCompletedAt !== undefined) {

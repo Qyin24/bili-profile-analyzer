@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma, PrismaClient } from "@prisma/client";
 import {
@@ -11,7 +12,7 @@ import {
   PurgeSelfProfilePayload,
 } from "@/types/self-profile";
 import { TaskStatus, PipelineStage, TaskOutcome, DataSourceRunStatus } from "@/types/analysis";
-import { CreateTaskDto, TaskSummaryResponse } from "@/types/task-api";
+import { CreateTaskDto, TaskSummaryResponse, ApiErrorResponse } from "@/types/task-api";
 
 type TransactionClient = Prisma.TransactionClient;
 type DbClient = PrismaClient | TransactionClient;
@@ -37,8 +38,87 @@ export class SelfProfileValidationError extends Error {
   }
 }
 
+export class SelfProfileConflictError extends Error {
+  public readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "SelfProfileConflictError";
+    this.code = code;
+  }
+}
+
+/**
+ * Maps task creation / execution exceptions to structured, safe HTTP error responses.
+ */
+export function mapTaskErrorToResponse(err: unknown): NextResponse<ApiErrorResponse> {
+  if (err instanceof SelfProvidedConsentRequiredError) {
+    const errorResponse: ApiErrorResponse = {
+      error: {
+        code: err.code,
+        message: err.message,
+        details: {
+          activeFieldsCount: err.activeFieldsCount,
+        },
+      },
+    };
+    return NextResponse.json(errorResponse, { status: 400 });
+  }
+
+  if (err instanceof SelfProfileValidationError) {
+    const errorResponse: ApiErrorResponse = {
+      error: {
+        code: err.code,
+        message: err.message,
+      },
+    };
+    return NextResponse.json(errorResponse, { status: 400 });
+  }
+
+  if (err instanceof SelfProfileConflictError) {
+    const errorResponse: ApiErrorResponse = {
+      error: {
+        code: err.code,
+        message: err.message,
+      },
+    };
+    return NextResponse.json(errorResponse, { status: 409 });
+  }
+
+  console.error("POST /api/tasks error:", err);
+  const errorResponse: ApiErrorResponse = {
+    error: {
+      code: "INTERNAL_SERVER_ERROR",
+      message: "创建分析任务失败",
+    },
+  };
+  return NextResponse.json(errorResponse, { status: 500 });
+}
+
+/**
+ * Pure read-only helper to inspect existing profile candidates before task creation.
+ * Deterministic single-user default profile strategy: orderBy createdAt: "asc".
+ * Strictly executes read queries (findUnique/findFirst).
+ * NEVER performs create, upsert, update, delete, or transaction mutations.
+ */
+export async function readExistingProfileForTaskCandidate(
+  profileId?: string,
+  db: PrismaClient = prisma
+) {
+  return profileId
+    ? await db.selfProvidedProfile.findUnique({
+        where: { id: profileId },
+        include: { fields: true },
+      })
+    : await db.selfProvidedProfile.findFirst({
+        orderBy: { createdAt: "asc" },
+        include: { fields: true },
+      });
+}
+
 /**
  * Get or create profile for a given profileId (or default single profile if omitted).
+ * Deterministic single-user default profile strategy: orderBy createdAt: "asc".
  */
 export async function getOrCreateProfile(
   db: DbClient = prisma,
@@ -50,6 +130,7 @@ export async function getOrCreateProfile(
         include: { fields: true },
       })
     : await db.selfProvidedProfile.findFirst({
+        orderBy: { createdAt: "asc" },
         include: { fields: true },
       });
 
@@ -69,25 +150,27 @@ export async function getOrCreateProfile(
       include: { fields: true },
     });
   } else {
-    // Ensure all 6 fields exist for this profile
-    const existingNames = new Set(profile.fields.map((f) => f.fieldName));
-    const missing = SELF_PROVIDED_FIELD_NAMES.filter((name) => !existingNames.has(name));
-    if (missing.length > 0) {
-      for (const name of missing) {
-        await db.selfProvidedField.create({
-          data: {
-            profileId: profile.id,
-            fieldName: name,
-            value: "",
-            allowedForAnalysis: true,
-            consentScope: "PERSISTENT_ACROSS_TASKS",
-          },
-        });
-      }
-      profile = await db.selfProvidedProfile.findUniqueOrThrow({
+    // Ensure all 6 field names exist in database (self-healing for schema evolution)
+    const existingFieldNames = new Set(profile.fields.map((f) => f.fieldName));
+    const missingFieldNames = SELF_PROVIDED_FIELD_NAMES.filter(
+      (name) => !existingFieldNames.has(name)
+    );
+
+    if (missingFieldNames.length > 0) {
+      await db.selfProvidedField.createMany({
+        data: missingFieldNames.map((name) => ({
+          profileId: profile!.id,
+          fieldName: name,
+          value: "",
+          allowedForAnalysis: true,
+          consentScope: "PERSISTENT_ACROSS_TASKS",
+        })),
+      });
+
+      profile = (await db.selfProvidedProfile.findUnique({
         where: { id: profile.id },
         include: { fields: true },
-      });
+      }))!;
     }
   }
 
@@ -95,7 +178,7 @@ export async function getOrCreateProfile(
 }
 
 /**
- * Formats profile record into standard API response object.
+ * Serializes raw profile into standard response view-model.
  */
 export function formatProfileResponse(profile: {
   id: string;
@@ -106,27 +189,31 @@ export function formatProfileResponse(profile: {
     value: string;
     allowedForAnalysis: boolean;
     consentScope: string;
-    updatedAt: Date;
   }[];
 }): SelfProvidedProfileResponse {
   const fieldsMap: Partial<Record<SelfProvidedFieldName, SelfProvidedFieldItem>> = {};
+
   let hasAllowedFieldsForAnalysis = false;
 
-  for (const name of SELF_PROVIDED_FIELD_NAMES) {
-    const field = profile.fields.find((f) => f.fieldName === name);
-    if (field) {
-      fieldsMap[name] = {
-        id: field.id,
-        fieldName: name,
-        value: field.value,
-        allowedForAnalysis: field.allowedForAnalysis,
-        consentScope: field.consentScope as "THIS_TASK_ONLY" | "PERSISTENT_ACROSS_TASKS",
-        updatedAt: field.updatedAt.toISOString(),
-      };
-      if (field.allowedForAnalysis && field.value.trim().length > 0) {
+  for (const f of profile.fields) {
+    if (SELF_PROVIDED_FIELD_NAMES.includes(f.fieldName as SelfProvidedFieldName)) {
+      const isAllowed = f.allowedForAnalysis && f.value.trim().length > 0;
+      if (isAllowed) {
         hasAllowedFieldsForAnalysis = true;
       }
-    } else {
+
+      fieldsMap[f.fieldName as SelfProvidedFieldName] = {
+        fieldName: f.fieldName as SelfProvidedFieldName,
+        value: f.value,
+        allowedForAnalysis: f.allowedForAnalysis,
+        consentScope: f.consentScope as "THIS_TASK_ONLY" | "PERSISTENT_ACROSS_TASKS",
+      };
+    }
+  }
+
+  // Guarantee all 6 fields exist in response object
+  for (const name of SELF_PROVIDED_FIELD_NAMES) {
+    if (!fieldsMap[name]) {
       fieldsMap[name] = {
         fieldName: name,
         value: "",
@@ -248,12 +335,13 @@ export async function revokeSelfProfile(
 
       return {
         success: true,
-        action: "STOP_FUTURE_USE",
-        affectedField: fieldName,
-        message: `已停止字段 [${fieldName}] 的未来分析使用，历史任务快照已完整保留。`,
+        action: "REVOKE_FUTURE",
+        revokedFieldName: fieldName,
+        message: `已关闭字段 [${fieldName}] 用于未来分析的授权，历史任务快照完整保留。`,
       };
     }
 
+    // Revoke all fields
     await tx.selfProvidedField.updateMany({
       where: { profileId: profile.id },
       data: { allowedForAnalysis: false },
@@ -261,19 +349,20 @@ export async function revokeSelfProfile(
 
     return {
       success: true,
-      action: "STOP_FUTURE_USE_ALL",
-      message: "已停止所有个人说明的未来分析使用，历史任务快照已完整保留。",
+      action: "REVOKE_FUTURE",
+      revokedFieldName: "ALL",
+      message: "已关闭所有个人自述字段用于未来分析的授权，历史任务快照完整保留。",
     };
   });
 }
 
 /**
- * Profile-Isolated Purge:
- * 1. Strictly scopes deletions to the specified profileId.
- * 2. Deletes SnapshotField records belonging to this profile's source fields.
- * 3. Cleans up empty SelfProvidedSnapshot records (0 fields remaining).
- * 4. Resets SelfProvidedField values for this profile.
- * 5. Marks affected AnalysisTasks as needsRegeneration=true.
+ * Purges specified field (or ALL fields) permanently:
+ * 1. Finds tasks whose snapshots contain the purged field(s) belonging to this specific profile.
+ * 2. Deletes SnapshotField records for this profile only.
+ * 3. Deletes empty SelfProvidedSnapshot records.
+ * 4. Resets profile's SelfProvidedField records (value: "", allowedForAnalysis: false).
+ * 5. Marks affected tasks with needsRegeneration = true.
  */
 export async function purgeSelfProfile(
   payload: PurgeSelfProfilePayload,
@@ -281,14 +370,14 @@ export async function purgeSelfProfile(
 ) {
   const { fieldName } = payload;
 
-  if (!fieldName || (fieldName !== "ALL" && !SELF_PROVIDED_FIELD_NAMES.includes(fieldName as SelfProvidedFieldName))) {
-    throw new SelfProfileValidationError("INVALID_FIELD_NAME", "必须指定合法的 fieldName 或 ALL");
+  if (fieldName && fieldName !== "ALL" && !SELF_PROVIDED_FIELD_NAMES.includes(fieldName as SelfProvidedFieldName)) {
+    throw new SelfProfileValidationError("INVALID_FIELD_NAME", `字段名称 [${fieldName}] 无效`);
   }
 
   return prisma.$transaction(async (tx) => {
     const profile = await getOrCreateProfile(tx, profileId);
 
-    // 1. Locate source fields belonging strictly to THIS profile
+    // 1. Identify target profile's field IDs to purge
     const targetSourceFields = await tx.selfProvidedField.findMany({
       where: {
         profileId: profile.id,
@@ -299,31 +388,41 @@ export async function purgeSelfProfile(
 
     const targetSourceFieldIds = targetSourceFields.map((f) => f.id);
 
-    // 2. Find snapshot fields that reference these source fields
-    // Also include snapshot fields matching fieldName under tasks that have snapshots originating from this profile
-    const snapshotFieldsToDelete = await tx.snapshotField.findMany({
+    if (targetSourceFieldIds.length === 0) {
+      return {
+        success: true,
+        action: "PURGE_FIELD",
+        purgedFieldName: fieldName,
+        affectedTasksCount: 0,
+        message: "没有需要清除的自述字段。",
+      };
+    }
+
+    // 2. Find historical snapshot fields created specifically from this profile's source fields
+    const affectedSnapshotFields = await tx.snapshotField.findMany({
       where: {
-        OR: [
-          { sourceFieldId: { in: targetSourceFieldIds } },
-          {
-            fieldName: fieldName === "ALL" ? undefined : fieldName,
-            sourceField: { profileId: profile.id },
-          },
-        ],
+        sourceFieldId: { in: targetSourceFieldIds },
       },
-      include: {
-        snapshot: true,
+      select: {
+        id: true,
+        snapshotId: true,
+        snapshot: {
+          select: {
+            id: true,
+            taskId: true,
+          },
+        },
       },
     });
 
-    const snapshotFieldIdsToDelete = snapshotFieldsToDelete.map((sf) => sf.id);
-    const affectedSnapshotIds = Array.from(new Set(snapshotFieldsToDelete.map((sf) => sf.snapshotId)));
-    const affectedTaskIds = Array.from(new Set(snapshotFieldsToDelete.map((sf) => sf.snapshot.taskId)));
+    const affectedSnapshotFieldIds = affectedSnapshotFields.map((sf) => sf.id);
+    const affectedSnapshotIds = Array.from(new Set(affectedSnapshotFields.map((sf) => sf.snapshotId)));
+    const affectedTaskIds = Array.from(new Set(affectedSnapshotFields.map((sf) => sf.snapshot.taskId)));
 
-    // 3. Delete the snapshot fields strictly matching this profile
-    if (snapshotFieldIdsToDelete.length > 0) {
+    // 3. Delete matching SnapshotField records
+    if (affectedSnapshotFieldIds.length > 0) {
       await tx.snapshotField.deleteMany({
-        where: { id: { in: snapshotFieldIdsToDelete } },
+        where: { id: { in: affectedSnapshotFieldIds } },
       });
     }
 
@@ -374,13 +473,17 @@ export async function purgeSelfProfile(
 
 /**
  * Fully Atomic Task & Snapshot Creation:
- * 1. Checks active fields INSIDE the single transaction.
- * 2. If active fields exist and consent is NOT confirmed, aborts transaction immediately.
- * 3. If confirmed, creates Target, Task, Snapshot, and handles THIS_TASK_ONLY field resets in the same transaction.
+ * 1. Performs pure read query (readExistingProfileForTaskCandidate, strictly 0 creates/mutations) outside transaction for concurrency candidate preparation.
+ * 2. In single transaction: gets/creates profile (all creates happen strictly in transaction), validates active fields, strictly gates consent.
+ * 3. Conditionally claims THIS_TASK_ONLY fields atomically; if count mismatch, throws SelfProfileConflictError and rolls back.
+ * 4. Upserts Target and creates AnalysisTask inside the transaction.
+ * 5. Creates immutable snapshot using fields read strictly inside this transaction.
+ * 6. Hydrates task summary strictly selecting only metadata/count (zero sensitive fields read).
  */
 export async function createTaskWithSnapshot(
   dto: CreateTaskDto,
-  profileId?: string
+  profileId?: string,
+  _barrierHook?: () => Promise<void>
 ) {
   const { platformUid, displayName, selfProvidedConsentConfirmed } = dto;
 
@@ -395,100 +498,154 @@ export async function createTaskWithSnapshot(
   const cleanUid = platformUid.trim();
   const cleanName = displayName && displayName.trim() ? displayName.trim() : `演示用户 (${cleanUid})`;
 
-  return prisma.$transaction(async (tx) => {
-    // 1. Read profile and active fields inside transaction
-    const profile = await getOrCreateProfile(tx, profileId);
+  // Pure read query outside transaction (strictly read-only, zero create/upsert/mutation)
+  const existingProfile = await readExistingProfileForTaskCandidate(profileId, prisma);
 
-    const activeFields = profile.fields.filter(
-      (f) => f.allowedForAnalysis && f.value.trim().length > 0
-    );
+  const initialThisTaskOnlyFieldIds = existingProfile
+    ? existingProfile.fields
+        .filter((f) => f.allowedForAnalysis && f.consentScope === "THIS_TASK_ONLY" && f.value.trim().length > 0)
+        .map((f) => f.id)
+    : [];
 
-    // 2. Strict Consent Gate: If active fields exist, selfProvidedConsentConfirmed must be true
-    if (activeFields.length > 0 && selfProvidedConsentConfirmed !== true) {
-      throw new SelfProvidedConsentRequiredError(activeFields.length);
-    }
+  // Optional read-only concurrency test barrier (never modifies database records)
+  if (_barrierHook) {
+    await _barrierHook();
+  }
 
-    // 3. Upsert Target
-    const target = await tx.analysisTarget.upsert({
-      where: { platformUid: cleanUid },
-      update: { displayName: cleanName },
-      create: {
-        platform: "BILIBILI",
-        platformUid: cleanUid,
-        displayName: cleanName,
-      },
-    });
+  try {
+    return await prisma.$transaction(
+      async (tx) => {
+        // 1. Read or create profile strictly inside transaction
+        const profile = await getOrCreateProfile(tx, profileId);
 
-    // 4. Create AnalysisTask
-    const task = await tx.analysisTask.create({
-      data: {
-        targetId: target.id,
-        taskStatus: "PENDING",
-        pipelineStage: "COLLECT",
-        outcome: "NONE",
-        progress: 0,
-        currentStageMessage: "任务已创建，等待启动模拟分析流水线",
-      },
-    });
+        // 2. Conditional Atomic Claiming of THIS_TASK_ONLY fields:
+        // If initial candidate state included THIS_TASK_ONLY fields, attempt conditional claim.
+        // If concurrent transaction already consumed any of them, claim count is 0, throwing SelfProfileConflictError.
+        const currentThisTaskOnlyFieldIds = profile.fields
+          .filter((f) => f.allowedForAnalysis && f.consentScope === "THIS_TASK_ONLY" && f.value.trim().length > 0)
+          .map((f) => f.id);
 
-    // 5. Create immutable snapshot if active fields exist and consent confirmed
-    if (activeFields.length > 0 && selfProvidedConsentConfirmed === true) {
-      await tx.selfProvidedSnapshot.create({
-        data: {
-          taskId: task.id,
-          fields: {
-            create: activeFields.map((f) => ({
-              sourceFieldId: f.id,
-              fieldName: f.fieldName,
-              value: f.value,
-              consentScope: f.consentScope,
-            })),
+        const targetClaimFieldIds = Array.from(
+          new Set([...initialThisTaskOnlyFieldIds, ...currentThisTaskOnlyFieldIds])
+        );
+
+        if (targetClaimFieldIds.length > 0) {
+          const claimResult = await tx.selfProvidedField.updateMany({
+            where: {
+              id: { in: targetClaimFieldIds },
+              allowedForAnalysis: true,
+              consentScope: "THIS_TASK_ONLY",
+            },
+            data: { allowedForAnalysis: false },
+          });
+
+          if (claimResult.count !== targetClaimFieldIds.length) {
+            throw new SelfProfileConflictError(
+              "THIS_TASK_ONLY_ALREADY_CONSUMED",
+              "单次自述字段已被并发任务消费，请刷新后重试"
+            );
+          }
+
+          await tx.selfProvidedProfile.update({
+            where: { id: profile.id },
+            data: { updatedAt: new Date() },
+          });
+        }
+
+        // Active fields in snapshot: persistent active fields + claimed this-task-only fields
+        const activeFields = profile.fields.filter(
+          (f) =>
+            (f.allowedForAnalysis || targetClaimFieldIds.includes(f.id)) &&
+            f.value.trim().length > 0
+        );
+
+        // 3. Strict Consent Gate: If active fields exist, selfProvidedConsentConfirmed must be true
+        if (activeFields.length > 0 && selfProvidedConsentConfirmed !== true) {
+          throw new SelfProvidedConsentRequiredError(activeFields.length);
+        }
+
+        // 4. Upsert Target
+        const target = await tx.analysisTarget.upsert({
+          where: { platformUid: cleanUid },
+          update: { displayName: cleanName },
+          create: {
+            platform: "BILIBILI",
+            platformUid: cleanUid,
+            displayName: cleanName,
           },
-        },
-      });
-
-      // 6. Reset THIS_TASK_ONLY fields to allowedForAnalysis: false
-      const thisTaskOnlyFieldIds = activeFields
-        .filter((f) => f.consentScope === "THIS_TASK_ONLY")
-        .map((f) => f.id);
-
-      if (thisTaskOnlyFieldIds.length > 0) {
-        await tx.selfProvidedField.updateMany({
-          where: { id: { in: thisTaskOnlyFieldIds } },
-          data: { allowedForAnalysis: false },
         });
-      }
-    }
 
-    // Hydrate task and serialize to strictly desensitized summary
-    const hydratedTask = await tx.analysisTask.findUniqueOrThrow({
-      where: { id: task.id },
-      include: {
-        target: true,
-        dataSourceRuns: true,
-        selfProvidedSnapshot: {
+        // 5. Create AnalysisTask
+        const task = await tx.analysisTask.create({
+          data: {
+            targetId: target.id,
+            taskStatus: "PENDING",
+            pipelineStage: "COLLECT",
+            outcome: "NONE",
+            progress: 0,
+            currentStageMessage: "任务已创建，等待启动模拟分析流水线",
+          },
+        });
+
+        // 6. Create immutable snapshot using fields read strictly inside this transaction
+        if (activeFields.length > 0 && selfProvidedConsentConfirmed === true) {
+          await tx.selfProvidedSnapshot.create({
+            data: {
+              taskId: task.id,
+              fields: {
+                create: activeFields.map((f) => ({
+                  sourceFieldId: f.id,
+                  fieldName: f.fieldName,
+                  value: f.value,
+                  consentScope: f.consentScope,
+                })),
+              },
+            },
+          });
+        }
+
+        // Hydrate task and serialize to strictly desensitized summary
+        const hydratedTask = await tx.analysisTask.findUniqueOrThrow({
+          where: { id: task.id },
           include: {
-            fields: {
-              select: { id: true }, // Minimum read: ONLY select id for count calculation, NEVER select value/fieldName/consentScope
+            target: true,
+            dataSourceRuns: true,
+            selfProvidedSnapshot: {
+              include: {
+                fields: {
+                  select: { id: true }, // Minimum read: ONLY select id for count calculation, NEVER select value/fieldName/consentScope
+                },
+              },
             },
           },
-        },
-      },
-    });
+        });
 
-    return serializeTaskSummary(hydratedTask);
-  });
+        return serializeTaskSummary(hydratedTask);
+      },
+      { timeout: 15000, maxWait: 10000 }
+    );
+  } catch (err: unknown) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      (err.code === "P2034" || err.code === "P2028")
+    ) {
+      throw new SelfProfileConflictError(
+        "THIS_TASK_ONLY_ALREADY_CONSUMED",
+        "单次自述字段已被并发任务消费，请刷新后重试"
+      );
+    }
+    throw err;
+  }
 }
 
 /**
- * Shared Minimal Prisma Include Projection for Task Summary APIs.
- * Strictly guarantees that SnapshotField.value is never selected or loaded into memory.
+ * Strict Desensitization Projection for AnalysisTask Prisma queries.
+ * NEVER projects SnapshotField.value, fieldName, or consentScope.
+ * ONLY selects `SnapshotField.id` to compute count of fields attached to task.
  */
 export const TASK_SUMMARY_PRISMA_INCLUDE = {
   target: true,
-  dataSourceRuns: {
-    orderBy: { createdAt: "asc" as const },
-  },
+  dataSourceRuns: true,
   selfProvidedSnapshot: {
     include: {
       fields: {
@@ -499,13 +656,7 @@ export const TASK_SUMMARY_PRISMA_INCLUDE = {
 } as const;
 
 /**
- * Unified Task Summary Serializer (Phase 5.0.2)
- * Strictly strips all raw SelfProvidedSnapshot / SnapshotField values.
- * Only returns non-sensitive metadata:
- * - hasSelfProvidedSnapshot: boolean
- * - selfProvidedFieldsCount: number
- * - snapshotCreatedAt: string | null
- * - needsRegeneration: boolean
+ * Strips raw database fields and formats task summary for secure external API output.
  */
 export function serializeTaskSummary(task: {
   id: string;
@@ -539,7 +690,7 @@ export function serializeTaskSummary(task: {
   } | null;
 }): TaskSummaryResponse {
   const hasSnapshot = Boolean(task.selfProvidedSnapshot);
-  const fieldsCount = task.selfProvidedSnapshot?.fields ? task.selfProvidedSnapshot.fields.length : 0;
+  const fieldsCount = task.selfProvidedSnapshot?.fields?.length ?? 0;
 
   return {
     id: task.id,
@@ -552,9 +703,7 @@ export function serializeTaskSummary(task: {
     needsRegeneration: task.needsRegeneration,
     hasSelfProvidedSnapshot: hasSnapshot,
     selfProvidedFieldsCount: fieldsCount,
-    snapshotCreatedAt: task.selfProvidedSnapshot?.createdAt
-      ? task.selfProvidedSnapshot.createdAt.toISOString()
-      : null,
+    snapshotCreatedAt: task.selfProvidedSnapshot ? task.selfProvidedSnapshot.createdAt.toISOString() : null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
     completedAt: task.completedAt ? task.completedAt.toISOString() : null,
