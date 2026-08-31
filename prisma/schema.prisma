@@ -79,6 +79,7 @@ model AnalysisTarget {
   normalizedIdentifier     String               @default("")
   displayName              String?
   operatorConsentConfirmed Boolean              @default(true)
+  isTest                   Boolean              @default(false)
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
   tasks                    AnalysisTask[]
@@ -130,6 +131,7 @@ model AnalysisTask {
   progress             Int                          @default(0)
   currentStageMessage  String                       @default("")
   needsRegeneration    Boolean                      @default(false)
+  isTest               Boolean                      @default(false)
   createdAt            DateTime                     @default(now())
   updatedAt            DateTime                     @updatedAt
   completedAt          DateTime?

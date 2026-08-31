@@ -12,6 +12,7 @@ import {
   getOrCreateAnonymousSessionId,
   applySessionCookie,
 } from "@/lib/anonymous-session";
+import { isTestCleanupTokenValid } from "@/lib/test-cleanup-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -70,11 +71,16 @@ export async function POST(request: NextRequest) {
     // Ensure or create an anonymous session for the task creator
     const { sessionId, isNew } = getOrCreateAnonymousSessionId(request);
 
+    // Server-only decision: a request carrying a valid test-cleanup token may create a
+    // test-marked task. The client CANNOT set isTest itself (CreateTaskDto has no such field).
+    const isTest = isTestCleanupTokenValid(request);
+
     const createdTaskSummary = await createTaskWithSnapshot(
       body,
       undefined,
       undefined,
-      sessionId
+      sessionId,
+      isTest
     );
 
     const response = NextResponse.json(createdTaskSummary, { status: 201 });
