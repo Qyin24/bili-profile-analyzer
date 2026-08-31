@@ -23,6 +23,12 @@ import { ApiErrorResponse } from "@/types/task-api";
 import { AiProviderType, OpenAiCompatibleConfig } from "@/types/ai-analysis";
 import { getAnonymousSessionId } from "@/lib/anonymous-session";
 
+// The pipeline performs 4 outbound Bilibili requests plus several DB round-trips, and a
+// user-supplied OpenAI-compatible provider may take up to its own 30s timeout.
+// Vercel's default (10s Hobby / 15s Pro) would kill the function mid-flight and leave the
+// task stuck in RUNNING, so the platform limit is raised explicitly.
+export const maxDuration = 60;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

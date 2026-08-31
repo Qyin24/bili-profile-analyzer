@@ -136,8 +136,10 @@ async function runE2ETaskPipelineTest() {
       completedTask.taskStatus === "COMPLETED" &&
       completedTask.pipelineStage === "REPORT" &&
       completedTask.progress === 100 &&
-      completedTask.outcome === "PARTIAL";
-    console.log(`  - 流水线成功推进至 COMPLETED / REPORT / 100% / PARTIAL: ${pass2 ? "✅ 通过" : "❌ 失败"}`);
+      // After the outcome-semantics fix: a fully successful run (mock AI persisted) must
+      // report FULL, while PARTIAL is reserved for AI-degraded runs.
+      completedTask.outcome === "FULL";
+    console.log(`  - 流水线成功推进至 COMPLETED / REPORT / 100% / FULL: ${pass2 ? "✅ 通过" : "❌ 失败"}`);
     if (!pass2) allPassed = false;
 
     // -------------------------------------------------------------------------

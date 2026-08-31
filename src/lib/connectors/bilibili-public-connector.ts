@@ -721,8 +721,10 @@ export class BilibiliPublicConnector {
 
       const json = await res.json();
       if (json.code !== 0 || !Array.isArray(json.data?.list) || json.data.list.length === 0) {
+        // Keep semantics identical to PUBLIC_FAVORITES: unavailable/private data is NOT a success.
+        // Returning success=true here caused callers to record a SUCCEEDED DataSourceRun with 0 records.
         return {
-          success: true,
+          success: false,
           capability: "PUBLIC_LIKES",
           status: "PRIVATE",
           data: { totalLikesSampled: 0, records: [] },

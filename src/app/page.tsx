@@ -62,6 +62,11 @@ const NATURAL_STEPS: NaturalStep[] = [
 
 const SESSION_ACTIVE_TASK_KEY = "bili_active_task_id";
 
+// Hard cap for the client-side progress polling loop.
+// Without it, a task that never leaves RUNNING (e.g. the serverless execution request was
+// terminated by the platform) keeps the browser polling forever with no user-visible outcome.
+const POLL_MAX_DURATION_MS = 5 * 60 * 1000;
+
 function getStepIndexForStage(
   stage: PipelineStage | null | undefined,
   isFinished: boolean
@@ -102,6 +107,7 @@ export default function HomePage() {
   // Polling ref to prevent concurrent loops or leaks
   const pollingTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const redirectTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const pollingStartedAtRef = React.useRef<number | null>(null);
 
   const stopPolling = React.useCallback(() => {
     if (pollingTimerRef.current) {
@@ -121,6 +127,19 @@ export default function HomePage() {
   // Poll single task status from real API
   const pollTaskStatus = React.useCallback(
     async (taskId: string) => {
+      // Stop polling once the hard cap is exceeded so the user always reaches a terminal UI state.
+      if (pollingStartedAtRef.current === null) {
+        pollingStartedAtRef.current = Date.now();
+      }
+      if (Date.now() - pollingStartedAtRef.current > POLL_MAX_DURATION_MS) {
+        stopPolling();
+        setAnalysisStatus("FAILED");
+        setErrorMessage(
+          "分析耗时过长，已停止自动刷新。任务可能仍在后台执行，请稍后在「我的分析」中查看结果。"
+        );
+        return;
+      }
+
       try {
         const res = await fetch(`/api/tasks/${taskId}`, { cache: "no-store" });
         if (!res.ok) {
@@ -162,6 +181,19 @@ export default function HomePage() {
     [router, stopPolling, clearActiveSession, completeAllStages]
   );
 
+  // Starts (or restarts) the polling loop for a task and resets its elapsed-time budget.
+  const startPolling = React.useCallback(
+    (taskId: string) => {
+      stopPolling();
+      pollingStartedAtRef.current = Date.now();
+      pollTaskStatus(taskId);
+      pollingTimerRef.current = setInterval(() => {
+        pollTaskStatus(taskId);
+      }, 700);
+    },
+    [pollTaskStatus, stopPolling]
+  );
+
   // On component mount: Recover running task if active in sessionStorage
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -187,11 +219,7 @@ export default function HomePage() {
               setStageMessage(task.currentStageMessage || "正在恢复分析进度...");
               setProgress(task.progress);
 
-              stopPolling();
-              pollTaskStatus(task.id);
-              pollingTimerRef.current = setInterval(() => {
-                pollTaskStatus(task.id);
-              }, 700);
+              startPolling(task.id);
             } else if (task.taskStatus === "COMPLETED") {
               clearActiveSession();
               setActiveTaskId(task.id);
@@ -216,7 +244,7 @@ export default function HomePage() {
         clearTimeout(redirectTimerRef.current);
       }
     };
-  }, [pollTaskStatus, stopPolling, clearActiveSession]);
+  }, [startPolling, stopPolling, clearActiveSession]);
 
   // Parse UID in pure browser memory
   const parseUid = (raw: string): string | null => {
@@ -246,6 +274,7 @@ export default function HomePage() {
 
   const handleResetToIdle = () => {
     stopPolling();
+    pollingStartedAtRef.current = null;
     if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
     clearActiveSession();
     setActiveTaskId(null);
@@ -297,6 +326,7 @@ export default function HomePage() {
       const createdTask: TaskSummaryResponse = createData;
       const taskId = createdTask.id;
       setActiveTaskId(taskId);
+      pollingStartedAtRef.current = Date.now();
 
       if (typeof window !== "undefined") {
         try {
@@ -329,11 +359,7 @@ export default function HomePage() {
       });
 
       // 4. Start polling loop
-      stopPolling();
-      pollTaskStatus(taskId);
-      pollingTimerRef.current = setInterval(() => {
-        pollTaskStatus(taskId);
-      }, 700);
+      startPolling(taskId);
     } catch (err: unknown) {
       const safeErr = mapNetworkErrorToSafeMessage(err);
       setAnalysisStatus("FAILED");

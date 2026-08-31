@@ -37,28 +37,31 @@ const AiConfigContext = React.createContext<AiConfigContextType | undefined>(und
 const SESSION_METADATA_KEY = "bili_user_ai_meta";
 
 export function AiConfigProvider({ children }: { children: React.ReactNode }) {
-  const [aiConfig, setAiConfig] = React.useState<UserAiConfigState>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = sessionStorage.getItem(SESSION_METADATA_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed?.apiBaseUrl && parsed?.model) {
-            return {
-              provider: parsed.provider === "OPENAI_COMPATIBLE" ? "OPENAI_COMPATIBLE" : "MOCK",
-              apiBaseUrl: parsed.apiBaseUrl,
-              apiKey: "", // API KEY IS STRICTLY NEVER LOADED FROM STORAGE
-              model: parsed.model,
-              isConfigured: false,
-            };
-          }
-        }
-      } catch {
-        // Fallback to default
-      }
+  // SSR/CSR invariant: the initial state MUST be identical on server and client.
+  // Reading sessionStorage during render produced a different first client render than the
+  // server HTML (baseUrl / model feed controlled <input value>), causing a hydration mismatch.
+  // Storage is therefore read only after mount.
+  const [aiConfig, setAiConfig] = React.useState<UserAiConfigState>(DEFAULT_AI_CONFIG);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = sessionStorage.getItem(SESSION_METADATA_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (!parsed?.apiBaseUrl || !parsed?.model) return;
+
+      setAiConfig({
+        provider: parsed.provider === "OPENAI_COMPATIBLE" ? "OPENAI_COMPATIBLE" : "MOCK",
+        apiBaseUrl: parsed.apiBaseUrl,
+        apiKey: "", // API KEY IS STRICTLY NEVER LOADED FROM STORAGE
+        model: parsed.model,
+        isConfigured: false,
+      });
+    } catch {
+      // Corrupt storage entry: keep the default config.
     }
-    return DEFAULT_AI_CONFIG;
-  });
+  }, []);
 
   const applyAiConfig = React.useCallback(
     (newConfig: {

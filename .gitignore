@@ -47,3 +47,6 @@ next-env.d.ts
 
 # temp browser profiles
 .chrome-temp-profile-*/
+
+# local agent/project memory (not part of the source repo)
+.workbuddy/

@@ -13,6 +13,7 @@ import {
 } from "@/types/self-profile";
 import { TaskStatus, PipelineStage, TaskOutcome, DataSourceRunStatus } from "@/types/analysis";
 import { CreateTaskDto, TaskSummaryResponse, ApiErrorResponse } from "@/types/task-api";
+import { validateTargetUid } from "@/lib/connectors/bilibili-public-connector";
 
 type TransactionClient = Prisma.TransactionClient;
 type DbClient = PrismaClient | TransactionClient;
@@ -492,11 +493,21 @@ export async function createTaskWithSnapshot(
     throw new SelfProfileValidationError("VALIDATION_FAILED", "platformUid 不能为空且必须为非空字符串");
   }
 
+  const cleanUid = platformUid.trim();
+  // Fail-closed: the API must reject an illegal UID itself, not rely solely on client-side
+  // validation. The connector also rejects non-digit UIDs at collection time, but enforcing
+  // here prevents a garbage UID from ever creating a (silently empty) task.
+  if (!validateTargetUid(cleanUid)) {
+    throw new SelfProfileValidationError(
+      "VALIDATION_FAILED",
+      "platformUid 必须为 1-16 位纯数字 UID"
+    );
+  }
+
   if (displayName !== undefined && displayName !== null && typeof displayName !== "string") {
     throw new SelfProfileValidationError("VALIDATION_FAILED", "displayName 若提供则必须为字符串");
   }
 
-  const cleanUid = platformUid.trim();
   const cleanName = displayName && displayName.trim() ? displayName.trim() : `演示用户 (${cleanUid})`;
 
   // Pure read query outside transaction (strictly read-only, zero create/upsert/mutation)

@@ -605,7 +605,9 @@ export async function executeTaskPipeline(
         taskStatus: "COMPLETED",
         pipelineStage: "REPORT",
         progress: 100,
-        outcome: "PARTIAL" as TaskOutcome,
+        // PARTIAL is reserved for AI degradation (see invariant rule 3 in this file's header).
+        // A fully successful run must report FULL, otherwise every task shows "信息不完整".
+        outcome: (aiPersistedSuccessfully ? "FULL" : "PARTIAL") as TaskOutcome,
         completedAt: completionTime,
         currentStageMessage: completionMessage,
       },
