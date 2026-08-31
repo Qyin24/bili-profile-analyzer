@@ -483,7 +483,8 @@ export async function purgeSelfProfile(
 export async function createTaskWithSnapshot(
   dto: CreateTaskDto,
   profileId?: string,
-  _barrierHook?: () => Promise<void>
+  _barrierHook?: () => Promise<void>,
+  sessionId?: string
 ) {
   const { platformUid, displayName, selfProvidedConsentConfirmed } = dto;
 
@@ -579,6 +580,7 @@ export async function createTaskWithSnapshot(
         const task = await tx.analysisTask.create({
           data: {
             targetId: target.id,
+            sessionId: sessionId || null,
             taskStatus: "PENDING",
             pipelineStage: "COLLECT",
             outcome: "NONE",

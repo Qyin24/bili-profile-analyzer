@@ -377,7 +377,7 @@ export function TaskCreationCard({ onTaskCreated }: TaskCreationCardProps) {
               <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
               <div className="truncate">
                 <span className="font-semibold text-foreground">AI 分析引擎：</span>
-                {aiConfig.isConfigured ? (
+                {aiConfig.provider === "OPENAI_COMPATIBLE" && aiConfig.isConfigured ? (
                   <span className="text-emerald-700 dark:text-emerald-400 font-medium">
                     已接入自定义 AI ({aiConfig.model})
                   </span>

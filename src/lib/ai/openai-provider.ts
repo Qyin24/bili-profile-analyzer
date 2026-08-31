@@ -29,6 +29,10 @@ import {
 import { DeterministicReportInput } from "@/types/processing";
 import { validateDeterministicReportInput } from "@/lib/processing/pipeline";
 import { validateAiAnalysisResult } from "./validator";
+import { validateDestinationSafe } from "./ssrf-guard";
+import { normalizeOpenAiBaseUrl } from "./url-normalizer";
+
+export { normalizeOpenAiBaseUrl };
 
 export class OpenAiProviderError extends Error {
   constructor(message: string) {
@@ -37,72 +41,27 @@ export class OpenAiProviderError extends Error {
   }
 }
 
-/**
- * Normalizes and validates an OpenAI-compatible Base URL.
- *
- * Rules:
- * - Only http: or https: protocols are accepted.
- * - Rejects any URL containing credentials (username:password), query params (?), or fragments (#).
- * - Correctly handles trailing slashes.
- * - Automatically ensures `/chat/completions` suffix without duplicate path segments.
- */
-export function normalizeOpenAiBaseUrl(rawUrl: string): {
-  valid: boolean;
-  endpoint?: string;
-  reason?: string;
-} {
-  if (!rawUrl || typeof rawUrl !== "string" || !rawUrl.trim()) {
-    return { valid: false, reason: "API Base URL 不能为空" };
-  }
-
-  const trimmed = rawUrl.trim();
-
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    return { valid: false, reason: "API Base URL 格式无效，请输入正确的 HTTP(S) 地址" };
-  }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { valid: false, reason: "API Base URL 必须使用 http 或 https 协议" };
-  }
-
-  if (url.username || url.password) {
-    return { valid: false, reason: "API Base URL 不得包含用户名或密码凭证" };
-  }
-
-  if (url.search) {
-    return { valid: false, reason: "API Base URL 不得包含查询参数 (?)" };
-  }
-
-  if (url.hash) {
-    return { valid: false, reason: "API Base URL 不得包含 URL 锚点 (#)" };
-  }
-
-  const cleanPath = url.pathname.replace(/\/+$/, "");
-  const finalPath = cleanPath.endsWith("/chat/completions")
-    ? cleanPath
-    : `${cleanPath}/chat/completions`;
-
-  const endpoint = `${url.origin}${finalPath}`;
-  return { valid: true, endpoint };
+export interface ValidateOpenAiConfigOptions {
+  allowPrivateIps?: boolean;
 }
 
 /**
- * Validates the in-memory OpenAI configuration.
+ * Validates the in-memory OpenAI configuration and performs SSRF / IP / DNS verification.
  */
-export function validateOpenAiConfig(config: OpenAiCompatibleConfig): {
+export async function validateOpenAiConfig(
+  config: OpenAiCompatibleConfig,
+  options?: ValidateOpenAiConfigOptions
+): Promise<{
   valid: boolean;
   endpoint?: string;
   reason?: string;
-} {
+}> {
   if (!config || typeof config !== "object") {
     return { valid: false, reason: "AI 配置对象无效" };
   }
 
   const urlRes = normalizeOpenAiBaseUrl(config.apiBaseUrl);
-  if (!urlRes.valid || !urlRes.endpoint) {
+  if (!urlRes.valid || !urlRes.endpoint || !urlRes.hostname) {
     return { valid: false, reason: urlRes.reason || "API Base URL 格式不合规" };
   }
 
@@ -112,6 +71,12 @@ export function validateOpenAiConfig(config: OpenAiCompatibleConfig): {
 
   if (!config.model || typeof config.model !== "string" || !config.model.trim()) {
     return { valid: false, reason: "模型名称 (Model) 不能为空" };
+  }
+
+  // Deep SSRF / IP / DNS destination check
+  const ssrfRes = await validateDestinationSafe(urlRes.hostname, options?.allowPrivateIps);
+  if (!ssrfRes.safe) {
+    return { valid: false, reason: ssrfRes.reason || "禁止访问内网、私有网络或受限 IP 地址 (SSRF 拦截)" };
   }
 
   return { valid: true, endpoint: urlRes.endpoint };
@@ -285,7 +250,8 @@ function cleanModelOutputJson(rawText: string): string {
 export async function generateOpenAiAnalysis(
   reportInput: DeterministicReportInput,
   config: OpenAiCompatibleConfig,
-  customFetch: typeof fetch = globalThis.fetch
+  customFetch: typeof fetch = globalThis.fetch,
+  options?: ValidateOpenAiConfigOptions
 ): Promise<AiAnalysisResult> {
   // 1. Pre-validation of input
   const inputValidation = validateDeterministicReportInput(reportInput);
@@ -293,8 +259,8 @@ export async function generateOpenAiAnalysis(
     throw new OpenAiProviderError("DeterministicReportInput 契约校验未通过");
   }
 
-  // 2. Validate configuration
-  const configValidation = validateOpenAiConfig(config);
+  // 2. Validate configuration with SSRF destination check
+  const configValidation = await validateOpenAiConfig(config, options);
   if (!configValidation.valid || !configValidation.endpoint) {
     throw new OpenAiProviderError(configValidation.reason || "AI 配置参数无效");
   }
@@ -321,6 +287,7 @@ export async function generateOpenAiAnalysis(
     response = await customFetch(endpoint, {
       method: "POST",
       signal: controller.signal,
+      redirect: "manual",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${config.apiKey.trim()}`,
@@ -337,7 +304,11 @@ export async function generateOpenAiAnalysis(
     clearTimeout(timer);
   }
 
-  // 4. Handle HTTP Status
+  // 4. Handle HTTP Status & Redirect rejection
+  if (response.status >= 300 && response.status < 400) {
+    throw new OpenAiProviderError("AI API 请求发生非预期的 HTTP 重定向，基于安全原因已拦截 (SSRF 保护)");
+  }
+
   if (!response.ok) {
     const status = response.status;
     if (status === 401) {
@@ -404,12 +375,124 @@ export async function generateOpenAiAnalysis(
  */
 export function createOpenAiCompatibleProvider(
   config: OpenAiCompatibleConfig,
-  customFetch?: typeof fetch
+  customFetch?: typeof fetch,
+  options?: ValidateOpenAiConfigOptions
 ): AiAnalysisProvider {
   return {
     id: "OPENAI_COMPATIBLE",
     generate: async (reportInput: DeterministicReportInput) => {
-      return generateOpenAiAnalysis(reportInput, config, customFetch);
+      return generateOpenAiAnalysis(reportInput, config, customFetch, options);
     },
   };
 }
+
+export interface TestConnectionResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Tests connection to an OpenAI-compatible endpoint with minimal single token ping.
+ */
+export async function testOpenAiConnection(
+  config: OpenAiCompatibleConfig,
+  customFetch: typeof fetch = fetch,
+  options?: ValidateOpenAiConfigOptions
+): Promise<TestConnectionResult> {
+  const configValidation = await validateOpenAiConfig(config, options);
+  if (!configValidation.valid || !configValidation.endpoint) {
+    return {
+      success: false,
+      error: configValidation.reason || "AI 配置不完整或参数格式错误",
+    };
+  }
+
+  const endpoint = configValidation.endpoint;
+  const requestBody = {
+    model: config.model.trim(),
+    messages: [{ role: "user", content: "ping" }],
+    max_tokens: 1,
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+  try {
+    const response = await customFetch(endpoint, {
+      method: "POST",
+      signal: controller.signal,
+      redirect: "manual",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${config.apiKey.trim()}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      return {
+        success: false,
+        error: "目标地址返回了非预期的 HTTP 重定向，基于安全原因已拦截 (SSRF 保护)。",
+      };
+    }
+
+    if (response.ok) {
+      return {
+        success: true,
+        message: "连接成功，可以使用该 AI 配置进行分析。",
+      };
+    }
+
+    const status = response.status;
+    if (status === 401) {
+      return {
+        success: false,
+        error: "鉴权失败 (HTTP 401)，请检查 API Key 是否有效。",
+      };
+    }
+    if (status === 403) {
+      return {
+        success: false,
+        error: "权限不足 (HTTP 403)，请确认该 API Key 是否有权限访问指定模型。",
+      };
+    }
+    if (status === 404) {
+      return {
+        success: false,
+        error: "接口或模型不存在 (HTTP 404)，请检查 API Base URL 与模型名称。",
+      };
+    }
+    if (status === 429) {
+      return {
+        success: false,
+        error: "请求频率过高或账户额度不足 (HTTP 429)，请检查账户余额。",
+      };
+    }
+    if (status >= 500 && status < 600) {
+      return {
+        success: false,
+        error: `上游 AI 服务端异常 (HTTP ${status})，请稍后重试。`,
+      };
+    }
+
+    return {
+      success: false,
+      error: `API 返回异常状态码 (HTTP ${status})。`,
+    };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return {
+        success: false,
+        error: "连接超时（超过 15 秒），请检查网络连接或 API 地址。",
+      };
+    }
+    return {
+      success: false,
+      error: "无法连接到目标 API 地址，请检查网络或 Base URL 是否正确。",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+

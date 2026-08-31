@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { normalizeOpenAiBaseUrl } from "@/lib/ai/openai-provider";
+import { normalizeOpenAiBaseUrl } from "@/lib/ai/url-normalizer";
+import { AiProviderType } from "@/types/ai-analysis";
 
 export interface UserAiConfigState {
+  provider: AiProviderType;
   apiBaseUrl: string;
   apiKey: string; // IN-MEMORY ONLY: Never written to localStorage/sessionStorage/cookies/DB
   model: string;
@@ -13,6 +15,7 @@ export interface UserAiConfigState {
 interface AiConfigContextType {
   aiConfig: UserAiConfigState;
   applyAiConfig: (config: {
+    provider?: AiProviderType;
     apiBaseUrl: string;
     apiKey: string;
     model: string;
@@ -21,6 +24,7 @@ interface AiConfigContextType {
 }
 
 const DEFAULT_AI_CONFIG: UserAiConfigState = {
+  provider: "MOCK",
   apiBaseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "gpt-4o-mini",
@@ -29,21 +33,23 @@ const DEFAULT_AI_CONFIG: UserAiConfigState = {
 
 const AiConfigContext = React.createContext<AiConfigContextType | undefined>(undefined);
 
-const SESSION_STORAGE_KEY = "bili_user_ai_config";
+// Non-secret metadata storage key (stores URL & model ONLY, NEVER API KEY)
+const SESSION_METADATA_KEY = "bili_user_ai_meta";
 
 export function AiConfigProvider({ children }: { children: React.ReactNode }) {
   const [aiConfig, setAiConfig] = React.useState<UserAiConfigState>(() => {
     if (typeof window !== "undefined") {
       try {
-        const saved = sessionStorage.getItem(SESSION_STORAGE_KEY);
+        const saved = sessionStorage.getItem(SESSION_METADATA_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed?.apiKey && parsed?.apiBaseUrl && parsed?.model) {
+          if (parsed?.apiBaseUrl && parsed?.model) {
             return {
+              provider: parsed.provider === "OPENAI_COMPATIBLE" ? "OPENAI_COMPATIBLE" : "MOCK",
               apiBaseUrl: parsed.apiBaseUrl,
-              apiKey: parsed.apiKey,
+              apiKey: "", // API KEY IS STRICTLY NEVER LOADED FROM STORAGE
               model: parsed.model,
-              isConfigured: true,
+              isConfigured: false,
             };
           }
         }
@@ -55,7 +61,26 @@ export function AiConfigProvider({ children }: { children: React.ReactNode }) {
   });
 
   const applyAiConfig = React.useCallback(
-    (newConfig: { apiBaseUrl: string; apiKey: string; model: string }) => {
+    (newConfig: {
+      provider?: AiProviderType;
+      apiBaseUrl: string;
+      apiKey: string;
+      model: string;
+    }) => {
+      const selectedProvider: AiProviderType = newConfig.provider || "OPENAI_COMPATIBLE";
+
+      if (selectedProvider === "MOCK") {
+        const updated: UserAiConfigState = {
+          provider: "MOCK",
+          apiBaseUrl: newConfig.apiBaseUrl || "https://api.openai.com/v1",
+          apiKey: "",
+          model: newConfig.model || "gpt-4o-mini",
+          isConfigured: true,
+        };
+        setAiConfig(updated);
+        return { success: true };
+      }
+
       const trimmedUrl = newConfig.apiBaseUrl.trim();
       const trimmedKey = newConfig.apiKey.trim();
       const trimmedModel = newConfig.model.trim();
@@ -74,6 +99,7 @@ export function AiConfigProvider({ children }: { children: React.ReactNode }) {
       }
 
       const updated: UserAiConfigState = {
+        provider: "OPENAI_COMPATIBLE",
         apiBaseUrl: trimmedUrl,
         apiKey: trimmedKey,
         model: trimmedModel,
@@ -82,12 +108,18 @@ export function AiConfigProvider({ children }: { children: React.ReactNode }) {
 
       setAiConfig(updated);
 
+      // Save SAFE non-secret metadata only
       if (typeof window !== "undefined") {
         try {
-          sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updated));
-        } catch {
-          // Ignore storage error
-        }
+          sessionStorage.setItem(
+            SESSION_METADATA_KEY,
+            JSON.stringify({
+              provider: "OPENAI_COMPATIBLE",
+              apiBaseUrl: trimmedUrl,
+              model: trimmedModel,
+            })
+          );
+        } catch {}
       }
 
       return { success: true };
@@ -99,10 +131,8 @@ export function AiConfigProvider({ children }: { children: React.ReactNode }) {
     setAiConfig(DEFAULT_AI_CONFIG);
     if (typeof window !== "undefined") {
       try {
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      } catch {
-        // Ignore storage error
-      }
+        sessionStorage.removeItem(SESSION_METADATA_KEY);
+      } catch {}
     }
   }, []);
 
@@ -120,3 +150,4 @@ export function useAiConfig(): AiConfigContextType {
   }
   return context;
 }
+

@@ -11,6 +11,7 @@ import {
   VALID_DATA_SOURCE_STATUSES,
   ApiErrorResponse,
 } from "@/types/task-api";
+import { getAnonymousSessionId } from "@/lib/anonymous-session";
 
 export async function GET(
   _request: NextRequest,
@@ -18,13 +19,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const sessionId = getAnonymousSessionId(_request);
 
     const task = await prisma.analysisTask.findUnique({
       where: { id },
       include: TASK_SUMMARY_PRISMA_INCLUDE,
     });
 
-    if (!task) {
+    if (!task || (task.sessionId && task.sessionId !== sessionId)) {
       const errorResponse: ApiErrorResponse = {
         error: {
           code: "NOT_FOUND",
@@ -53,6 +55,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const sessionId = getAnonymousSessionId(request);
 
     let body: UpdateTaskDto;
     try {
@@ -77,12 +80,12 @@ export async function PATCH(
       return NextResponse.json(errorResponse, { status: 400 });
     }
 
-    // Check task existence
+    // Check task existence and session ownership
     const existing = await prisma.analysisTask.findUnique({
       where: { id },
     });
 
-    if (!existing) {
+    if (!existing || (existing.sessionId && existing.sessionId !== sessionId)) {
       const errorResponse: ApiErrorResponse = {
         error: {
           code: "NOT_FOUND",

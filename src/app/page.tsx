@@ -4,6 +4,13 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useMockTask } from "@/lib/mock-task-context";
+import { useAiConfig } from "@/lib/ai-config-context";
+import {
+  mapHttpErrorToSafeMessage,
+  mapNetworkErrorToSafeMessage,
+} from "@/lib/ui-error-mapper";
+import { TaskSummaryResponse } from "@/types/task-api";
+import { PipelineStage } from "@/types/analysis";
 import {
   Sparkles,
   ArrowRight,
@@ -16,24 +23,64 @@ import {
   CheckCircle2,
   Loader2,
   FileText,
+  RotateCcw,
 } from "lucide-react";
 
 interface NaturalStep {
   id: number;
   label: string;
   desc: string;
+  stages: PipelineStage[];
 }
 
 const NATURAL_STEPS: NaturalStep[] = [
-  { id: 1, label: "准备分析", desc: "校验目标标识与环境就绪状态" },
-  { id: 2, label: "整理可用信息", desc: "汇总公开主页与关注内容样本" },
-  { id: 3, label: "归纳内容主题", desc: "映射兴趣方向与主题结构" },
-  { id: 4, label: "生成报告", desc: "生成结构化内容画像与解读" },
+  {
+    id: 1,
+    label: "准备与采集",
+    desc: "校验目标标识，获取公开基础资料与行为样本",
+    stages: ["COLLECT"],
+  },
+  {
+    id: 2,
+    label: "整理与清洗",
+    desc: "规范化公开字段，过滤噪声与无效记录",
+    stages: ["NORMALIZE", "CLEAN"],
+  },
+  {
+    id: 3,
+    label: "归纳内容特征",
+    desc: "匹配主题标签，计算多源分布与行为模式",
+    stages: ["EXTRACT", "AGGREGATE", "STATISTICAL_ANALYSIS"],
+  },
+  {
+    id: 4,
+    label: "生成画像报告",
+    desc: "整合画像结论，输出结构化洞察与推断边界",
+    stages: ["AI_ANALYSIS", "SYNTHESIS", "REPORT"],
+  },
 ];
+
+const SESSION_ACTIVE_TASK_KEY = "bili_active_task_id";
+
+function getStepIndexForStage(
+  stage: PipelineStage | null | undefined,
+  isFinished: boolean
+): number {
+  if (isFinished) return 3;
+  if (!stage) return 0;
+  if (stage === "COLLECT") return 0;
+  if (stage === "NORMALIZE" || stage === "CLEAN") return 1;
+  if (stage === "EXTRACT" || stage === "AGGREGATE" || stage === "STATISTICAL_ANALYSIS") return 2;
+  if (stage === "AI_ANALYSIS" || stage === "SYNTHESIS" || stage === "REPORT") return 3;
+  return 0;
+}
+
+type AnalysisStatus = "IDLE" | "RUNNING" | "COMPLETED" | "FAILED";
 
 export default function HomePage() {
   const router = useRouter();
   const { startDemoAnalysis, completeAllStages } = useMockTask();
+  const { aiConfig } = useAiConfig();
 
   // Form states
   const [inputVal, setInputVal] = React.useState("");
@@ -45,11 +92,131 @@ export default function HomePage() {
   const [expectedGoal, setExpectedGoal] = React.useState("");
   const [notes, setNotes] = React.useState("");
 
-  // Analysis progress states
-  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
-  const [currentStepIndex, setCurrentStepIndex] = React.useState(0);
-  const [isFinished, setIsFinished] = React.useState(false);
-  const [createdTaskId, setCreatedTaskId] = React.useState<string | null>(null);
+  // Real task execution states
+  const [analysisStatus, setAnalysisStatus] = React.useState<AnalysisStatus>("IDLE");
+  const [activeTaskId, setActiveTaskId] = React.useState<string | null>(null);
+  const [pipelineStage, setPipelineStage] = React.useState<PipelineStage | null>(null);
+  const [stageMessage, setStageMessage] = React.useState<string>("");
+  const [progress, setProgress] = React.useState<number>(0);
+
+  // Polling ref to prevent concurrent loops or leaks
+  const pollingTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const redirectTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const stopPolling = React.useCallback(() => {
+    if (pollingTimerRef.current) {
+      clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+  }, []);
+
+  const clearActiveSession = React.useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.removeItem(SESSION_ACTIVE_TASK_KEY);
+      } catch {}
+    }
+  }, []);
+
+  // Poll single task status from real API
+  const pollTaskStatus = React.useCallback(
+    async (taskId: string) => {
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`, { cache: "no-store" });
+        if (!res.ok) {
+          if (res.status === 404) {
+            stopPolling();
+            clearActiveSession();
+            setAnalysisStatus("FAILED");
+            setErrorMessage("分析任务不存在或已被删除。");
+          }
+          return;
+        }
+
+        const task: TaskSummaryResponse = await res.json();
+        setPipelineStage(task.pipelineStage);
+        setStageMessage(task.currentStageMessage || "");
+        setProgress(task.progress);
+
+        if (task.taskStatus === "COMPLETED") {
+          stopPolling();
+          clearActiveSession();
+          setAnalysisStatus("COMPLETED");
+          completeAllStages();
+
+          // Auto-redirect to specific analysis report
+          if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+          redirectTimerRef.current = setTimeout(() => {
+            router.push(`/analysis?taskId=${task.id}`);
+          }, 800);
+        } else if (task.taskStatus === "FAILED" || task.taskStatus === "CANCELLED") {
+          stopPolling();
+          clearActiveSession();
+          setAnalysisStatus("FAILED");
+          setErrorMessage(task.currentStageMessage || "任务分析失败，请稍后重试。");
+        }
+      } catch {
+        // Transient network glitch during polling; will continue on next tick
+      }
+    },
+    [router, stopPolling, clearActiveSession, completeAllStages]
+  );
+
+  // On component mount: Recover running task if active in sessionStorage
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const savedTaskId = sessionStorage.getItem(SESSION_ACTIVE_TASK_KEY);
+      if (savedTaskId) {
+        fetch(`/api/tasks/${savedTaskId}`, { cache: "no-store" })
+          .then((res) => {
+            if (!res.ok) {
+              clearActiveSession();
+              return null;
+            }
+            return res.json();
+          })
+          .then((task: TaskSummaryResponse | null) => {
+            if (!task) return;
+
+            if (task.taskStatus === "RUNNING" || task.taskStatus === "PENDING") {
+              setActiveTaskId(task.id);
+              setAnalysisStatus("RUNNING");
+              setPipelineStage(task.pipelineStage);
+              setStageMessage(task.currentStageMessage || "正在恢复分析进度...");
+              setProgress(task.progress);
+
+              stopPolling();
+              pollTaskStatus(task.id);
+              pollingTimerRef.current = setInterval(() => {
+                pollTaskStatus(task.id);
+              }, 700);
+            } else if (task.taskStatus === "COMPLETED") {
+              clearActiveSession();
+              setActiveTaskId(task.id);
+              setAnalysisStatus("COMPLETED");
+              setPipelineStage("REPORT");
+              setProgress(100);
+            } else if (task.taskStatus === "FAILED" || task.taskStatus === "CANCELLED") {
+              clearActiveSession();
+              setAnalysisStatus("FAILED");
+              setErrorMessage(task.currentStageMessage || "分析任务执行失败。");
+            }
+          })
+          .catch(() => {
+            // Ignore background fetch failure
+          });
+      }
+    } catch {}
+
+    return () => {
+      stopPolling();
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, [pollTaskStatus, stopPolling, clearActiveSession]);
 
   // Parse UID in pure browser memory
   const parseUid = (raw: string): string | null => {
@@ -77,6 +244,18 @@ export default function HomePage() {
     setErrorMessage(null);
   };
 
+  const handleResetToIdle = () => {
+    stopPolling();
+    if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+    clearActiveSession();
+    setActiveTaskId(null);
+    setAnalysisStatus("IDLE");
+    setErrorMessage(null);
+    setPipelineStage(null);
+    setStageMessage("");
+    setProgress(0);
+  };
+
   const handleStartAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
     const uid = parseUid(inputVal);
@@ -87,90 +266,84 @@ export default function HomePage() {
     }
 
     setErrorMessage(null);
-    setIsAnalyzing(true);
-    setCurrentStepIndex(0);
-    setIsFinished(false);
+    setAnalysisStatus("RUNNING");
+    setPipelineStage("COLLECT");
+    setStageMessage("正在创建分析任务并校验环境...");
+    setProgress(5);
 
     // 1. Synchronize in-memory MockTaskContext
     startDemoAnalysis(uid);
 
     // 2. Call backend POST /api/tasks to create persistent record
-    let persistentTaskId = `task-${Date.now()}`;
     try {
-      const res = await fetch("/api/tasks", {
+      const createRes = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetId: uid }),
+        body: JSON.stringify({
+          platformUid: uid,
+          displayName: `用户 (${uid})`,
+          selfProvidedConsentConfirmed: true,
+        }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.id) {
-          persistentTaskId = data.id;
-        }
+
+      const createData = await createRes.json().catch(() => null);
+      if (!createRes.ok) {
+        const safeErr = mapHttpErrorToSafeMessage(createRes.status, createData?.error?.code);
+        setAnalysisStatus("FAILED");
+        setErrorMessage(safeErr.message);
+        return;
       }
-    } catch {
-      // Fallback to local memory ID if offline
+
+      const createdTask: TaskSummaryResponse = createData;
+      const taskId = createdTask.id;
+      setActiveTaskId(taskId);
+
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem(SESSION_ACTIVE_TASK_KEY, taskId);
+        } catch {}
+      }
+
+      // 3. Trigger backend execution asynchronously
+      const execPayload: {
+        provider?: string;
+        config?: { apiBaseUrl: string; apiKey: string; model: string };
+      } = {};
+      if (aiConfig.provider === "OPENAI_COMPATIBLE" && aiConfig.isConfigured && aiConfig.apiKey) {
+        execPayload.provider = "OPENAI_COMPATIBLE";
+        execPayload.config = {
+          apiBaseUrl: aiConfig.apiBaseUrl,
+          apiKey: aiConfig.apiKey,
+          model: aiConfig.model,
+        };
+      } else {
+        execPayload.provider = "MOCK";
+      }
+
+      fetch(`/api/tasks/${taskId}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(execPayload),
+      }).catch((execErr) => {
+        console.error("Execute trigger error:", execErr);
+      });
+
+      // 4. Start polling loop
+      stopPolling();
+      pollTaskStatus(taskId);
+      pollingTimerRef.current = setInterval(() => {
+        pollTaskStatus(taskId);
+      }, 700);
+    } catch (err: unknown) {
+      const safeErr = mapNetworkErrorToSafeMessage(err);
+      setAnalysisStatus("FAILED");
+      setErrorMessage(safeErr?.message || "发起分析失败，请检查网络后重试。");
     }
-
-    setCreatedTaskId(persistentTaskId);
-
-    // 3. Step 1: 准备分析
-    setCurrentStepIndex(0);
-    await new Promise((r) => setTimeout(r, 600));
-
-    // 4. Step 2: 整理可用信息
-    setCurrentStepIndex(1);
-    try {
-      await fetch(`/api/tasks/${persistentTaskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskStatus: "RUNNING",
-          pipelineStage: "EXTRACT",
-          progress: 44,
-          currentStageMessage: "正在整理可用信息...",
-        }),
-      });
-    } catch {}
-    await new Promise((r) => setTimeout(r, 700));
-
-    // 5. Step 3: 归纳内容主题
-    setCurrentStepIndex(2);
-    try {
-      await fetch(`/api/tasks/${persistentTaskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskStatus: "RUNNING",
-          pipelineStage: "STATISTICAL_ANALYSIS",
-          progress: 77,
-          currentStageMessage: "正在归纳内容主题...",
-        }),
-      });
-    } catch {}
-    await new Promise((r) => setTimeout(r, 700));
-
-    // 6. Step 4: 生成报告
-    setCurrentStepIndex(3);
-    try {
-      await fetch(`/api/tasks/${persistentTaskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskStatus: "COMPLETED",
-          pipelineStage: "REPORT",
-          progress: 100,
-          outcome: "FULL",
-          currentStageMessage: "分析报告已完成",
-          completedAt: new Date().toISOString(),
-        }),
-      });
-    } catch {}
-    completeAllStages();
-    await new Promise((r) => setTimeout(r, 500));
-
-    setIsFinished(true);
   };
+
+  const isFinished = analysisStatus === "COMPLETED";
+  const isFailed = analysisStatus === "FAILED";
+  const currentStepIndex = getStepIndexForStage(pipelineStage, isFinished);
 
   return (
     <AppLayout
@@ -194,7 +367,7 @@ export default function HomePage() {
 
         {/* 2. Main Input & Flow Card */}
         <div className="bg-card rounded-3xl p-6 sm:p-8 border border-border/70 shadow-sm space-y-6">
-          {!isAnalyzing ? (
+          {analysisStatus === "IDLE" ? (
             <form onSubmit={handleStartAnalysis} className="space-y-5">
               <div className="space-y-2">
                 <label htmlFor="target-input" className="block text-xs font-bold text-foreground">
@@ -337,7 +510,7 @@ export default function HomePage() {
               </div>
 
               {/* Start Action */}
-              <div className="pt-2">
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
                 <button
                   type="submit"
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 active:scale-[0.99] transition-all shadow-md shadow-primary/20 cursor-pointer"
@@ -345,29 +518,60 @@ export default function HomePage() {
                   <span>开始分析</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => router.push("/history")}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-secondary text-secondary-foreground hover:bg-secondary/80 font-semibold text-sm border border-border/60 transition-all cursor-pointer"
+                >
+                  <span>查看历史分析</span>
+                </button>
               </div>
             </form>
+          ) : isFailed ? (
+            /* Failed State Display */
+            <div className="space-y-6 py-2 text-center animate-in fade-in duration-300">
+              <div className="w-12 h-12 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-lg font-bold text-foreground">分析未能完成</h3>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
+                  {errorMessage || "在采集或分析过程中遇到问题，请检查网络或 UID 是否正确后重试。"}
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleResetToIdle}
+                  className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-2xl bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-all shadow-sm cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>返回重新开始</span>
+                </button>
+              </div>
+            </div>
           ) : (
-            /* Natural Progress Display */
+            /* Real Task Lifecycle Progress Display */
             <div className="space-y-6 py-2 animate-in fade-in duration-300">
               <div className="space-y-2 text-center">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-primary/15 text-primary border border-primary/20">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-primary/15 text-primary border border-primary/20">
                   {isFinished ? (
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   ) : (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   )}
-                  <span>{isFinished ? "分析已完成" : "正在生成内容偏好报告..."}</span>
+                  <span>{isFinished ? "分析已完成" : `正在分析 (${progress}%)`}</span>
                 </div>
                 <h3 className="text-lg sm:text-xl font-bold text-foreground">
-                  {isFinished ? "已生成分析报告" : "正在逐步整理可用信息"}
+                  {isFinished ? "已生成画像报告，正在为你打开..." : (stageMessage || "正在处理公开行为数据...")}
                 </h3>
-                <p className="text-xs text-muted-foreground">
-                  正在汇总公开行为数据，生成内容偏好报告。
+                <p className="text-xs text-muted-foreground font-mono">
+                  {activeTaskId && `任务 ID: ${activeTaskId.slice(0, 12)}...`}
                 </p>
               </div>
 
-              {/* Natural 4-Step Progress List */}
+              {/* Natural 4-Step Progress List mapped to real PipelineStage */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 {NATURAL_STEPS.map((step, idx) => {
                   const isDone = idx < currentStepIndex || isFinished;
@@ -406,11 +610,11 @@ export default function HomePage() {
                 <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 animate-in fade-in zoom-in-95 duration-200">
                   <button
                     type="button"
-                    onClick={() => router.push(`/analysis${createdTaskId ? `?taskId=${createdTaskId}` : ""}`)}
+                    onClick={() => router.push(`/analysis${activeTaskId ? `?taskId=${activeTaskId}` : ""}`)}
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all shadow-md shadow-primary/20 cursor-pointer"
                   >
                     <FileText className="w-4 h-4" />
-                    <span>查看我的分析报告</span>
+                    <span>立即查看我的分析报告</span>
                   </button>
 
                   <button
@@ -442,3 +646,4 @@ export default function HomePage() {
     </AppLayout>
   );
 }
+

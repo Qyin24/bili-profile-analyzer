@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import {
   getAiAnalysisForTask,
   persistAiAnalysisForTask,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/ai";
 import { ApiErrorResponse } from "@/types/task-api";
 import { AiProviderType, OpenAiCompatibleConfig } from "@/types/ai-analysis";
+import { getAnonymousSessionId } from "@/lib/anonymous-session";
 
 export async function GET(
   _request: NextRequest,
@@ -35,12 +37,29 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const sessionId = getAnonymousSessionId(_request);
 
     if (!id || typeof id !== "string" || !id.trim()) {
       const errorResponse: ApiErrorResponse = {
         error: {
           code: "NOT_FOUND",
           message: "任务 ID 无效或为空",
+        },
+      };
+      return NextResponse.json(errorResponse, { status: 404 });
+    }
+
+    // Verify task existence and session ownership
+    const existing = await prisma.analysisTask.findUnique({
+      where: { id },
+      select: { id: true, sessionId: true },
+    });
+
+    if (!existing || (existing.sessionId && existing.sessionId !== sessionId)) {
+      const errorResponse: ApiErrorResponse = {
+        error: {
+          code: "NOT_FOUND",
+          message: `未找到 ID 为 ${id} 的分析任务`,
         },
       };
       return NextResponse.json(errorResponse, { status: 404 });
@@ -142,12 +161,29 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+    const sessionId = getAnonymousSessionId(request);
 
     if (!id || typeof id !== "string" || !id.trim()) {
       const errorResponse: ApiErrorResponse = {
         error: {
           code: "NOT_FOUND",
           message: "任务 ID 无效或为空",
+        },
+      };
+      return NextResponse.json(errorResponse, { status: 404 });
+    }
+
+    // Verify task existence and session ownership
+    const existing = await prisma.analysisTask.findUnique({
+      where: { id },
+      select: { id: true, sessionId: true },
+    });
+
+    if (!existing || (existing.sessionId && existing.sessionId !== sessionId)) {
+      const errorResponse: ApiErrorResponse = {
+        error: {
+          code: "NOT_FOUND",
+          message: `未找到 ID 为 ${id} 的分析任务`,
         },
       };
       return NextResponse.json(errorResponse, { status: 404 });

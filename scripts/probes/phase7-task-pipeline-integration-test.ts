@@ -82,12 +82,17 @@ async function runE2ETaskPipelineTest() {
     await cleanupTestData();
 
     // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // Test 1: Task Creation API (POST /api/tasks)
     // -------------------------------------------------------------------------
     console.log("[测试 1] 创建分析任务 API (POST /api/tasks)...");
+    const e2eSessionId = `e2e-test-session-${Date.now()}`;
     const createReq = new NextRequest("http://localhost:3000/api/tasks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-session-id": e2eSessionId,
+      },
       body: JSON.stringify({
         platformUid: TEST_E2E_UID,
         displayName: `用户 (${TEST_E2E_UID})`,
@@ -173,18 +178,24 @@ async function runE2ETaskPipelineTest() {
     // Test 4: View Model & UI Data Consumption (Provenance Awareness)
     // -------------------------------------------------------------------------
     console.log("\n[测试 4] 前端只读 View Model 与工件 API 消费测试 (Provenance Aware)...");
-    const tasksGetReq = new NextRequest("http://localhost:3000/api/tasks");
-    const tasksGetRes = await getTasksApi();
+    const tasksGetReq = new NextRequest("http://localhost:3000/api/tasks", {
+      headers: { "x-session-id": e2eSessionId },
+    });
+    const tasksGetRes = await getTasksApi(tasksGetReq);
     const tasksList = await tasksGetRes.json();
-    const currentTask = tasksList.find((t: any) => t.id === createdTask.id);
+    const currentTask = Array.isArray(tasksList) ? tasksList.find((t: any) => t.id === createdTask.id) : null;
 
-    const detReportReq = new NextRequest(`http://localhost:3000/api/tasks/${createdTask.id}/deterministic-report`);
+    const detReportReq = new NextRequest(`http://localhost:3000/api/tasks/${createdTask.id}/deterministic-report`, {
+      headers: { "x-session-id": e2eSessionId },
+    });
     const detReportRes = await getDeterministicReportApi(detReportReq, {
       params: Promise.resolve({ id: createdTask.id }),
     });
     const detReportData = await detReportRes.json();
 
-    const aiReq = new NextRequest(`http://localhost:3000/api/tasks/${createdTask.id}/ai-analysis`);
+    const aiReq = new NextRequest(`http://localhost:3000/api/tasks/${createdTask.id}/ai-analysis`, {
+      headers: { "x-session-id": e2eSessionId },
+    });
     const aiRes = await getAiAnalysisApi(aiReq, {
       params: Promise.resolve({ id: createdTask.id }),
     });

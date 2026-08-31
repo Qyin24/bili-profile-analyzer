@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   PlusCircle,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ export interface NavItemConfig {
 export const NAV_ITEMS: NavItemConfig[] = [
   { name: "开始", fullName: "开始分析", href: "/", icon: Sparkles },
   { name: "报告", fullName: "我的报告", href: "/dashboard", icon: FileText },
+  { name: "分析", fullName: "我的分析", href: "/history", icon: History },
   { name: "主题", fullName: "内容主题", href: "/entities", icon: Layers },
   { name: "关系", fullName: "关系概览", href: "/graph", icon: Network },
   { name: "设置", fullName: "设置", href: "/settings", icon: Settings },

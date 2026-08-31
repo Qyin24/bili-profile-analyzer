@@ -123,6 +123,7 @@ model SelfProvidedField {
 model AnalysisTask {
   id                   String                       @id @default(uuid())
   targetId             String
+  sessionId            String?
   taskStatus           TaskStatus                   @default(PENDING)
   pipelineStage        PipelineStage                @default(COLLECT)
   outcome              TaskOutcome                  @default(NONE)
@@ -143,6 +144,7 @@ model AnalysisTask {
   aiAnalysis           AiAnalysisArtifact?
 
   @@index([targetId])
+  @@index([sessionId])
   @@index([taskStatus])
   @@map("analysis_tasks")
 }

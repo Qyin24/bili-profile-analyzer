@@ -26,6 +26,7 @@ import { validateAiAnalysisResult } from "./validator";
 export interface GenerateAiAnalysisOptions {
   openAiConfig?: OpenAiCompatibleConfig;
   customFetch?: typeof fetch;
+  allowPrivateIps?: boolean;
 }
 
 const REGISTERED_PROVIDERS: Record<string, AiAnalysisProvider> = {
@@ -56,7 +57,11 @@ export function getAiProvider(
     if (!options?.openAiConfig) {
       throw new Error("Missing OpenAI configuration");
     }
-    return createOpenAiCompatibleProvider(options.openAiConfig, options.customFetch);
+    return createOpenAiCompatibleProvider(
+      options.openAiConfig,
+      options.customFetch,
+      { allowPrivateIps: options.allowPrivateIps }
+    );
   }
 
   const provider = REGISTERED_PROVIDERS[trimmedId];

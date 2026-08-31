@@ -183,9 +183,13 @@ async function runTests() {
     const isMinimalProjection = Boolean(projectionFields.id) && !("value" in projectionFields) && !("fieldName" in projectionFields);
 
     // 1. Real Route: POST /api/tasks (using NextRequest against the single default profile)
+    const testSessionId = `self-profile-sess-${Date.now()}`;
     const postReq = new NextRequest("http://localhost:3000/api/tasks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-session-id": testSessionId,
+      },
       body: JSON.stringify({
         platformUid: TEST_TARGET_ROUTE_UID,
         displayName: "真实路由测试目标",
@@ -200,14 +204,19 @@ async function runTests() {
     const leakedInPost = JSON.stringify(postJson).includes(SENTINEL_SECRET);
 
     // 2. Real Route: GET /api/tasks
-    const listRes = await getTasksRoute();
+    const listReq = new NextRequest("http://localhost:3000/api/tasks", {
+      headers: { "x-session-id": testSessionId },
+    });
+    const listRes = await getTasksRoute(listReq);
     const listJson = await listRes.json();
     const listViolations = findForbiddenKeys(listJson);
     const leakedInList = JSON.stringify(listJson).includes(SENTINEL_SECRET);
     const isListStatus200 = listRes.status === 200;
 
     // 3. Real Route: GET /api/tasks/[id]
-    const getByIdReq = new NextRequest(`http://localhost:3000/api/tasks/${postJson.id}`);
+    const getByIdReq = new NextRequest(`http://localhost:3000/api/tasks/${postJson.id}`, {
+      headers: { "x-session-id": testSessionId },
+    });
     const getByIdRes = await getTaskByIdRoute(getByIdReq, {
       params: Promise.resolve({ id: postJson.id }),
     });
@@ -219,7 +228,10 @@ async function runTests() {
     // 4. Real Route: PATCH /api/tasks/[id]
     const patchReq = new NextRequest(`http://localhost:3000/api/tasks/${postJson.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-session-id": testSessionId,
+      },
       body: JSON.stringify({
         taskStatus: "RUNNING",
         pipelineStage: "COLLECT",

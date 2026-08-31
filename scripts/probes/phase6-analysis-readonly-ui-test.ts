@@ -91,9 +91,12 @@ async function runAnalysisUiVerification() {
       },
     });
 
+    const uiTestSessionId = `ui-test-sess-${Date.now()}`;
+
     const task1 = await prisma.analysisTask.create({
       data: {
         targetId: target1.id,
+        sessionId: uiTestSessionId,
         taskStatus: "RUNNING",
         pipelineStage: "AI_ANALYSIS",
         progress: 80,
@@ -133,6 +136,7 @@ async function runAnalysisUiVerification() {
     const task2 = await prisma.analysisTask.create({
       data: {
         targetId: target1.id,
+        sessionId: uiTestSessionId,
         taskStatus: "RUNNING",
         pipelineStage: "AI_ANALYSIS",
         progress: 80,
@@ -163,7 +167,11 @@ async function runAnalysisUiVerification() {
     // Test 1: Recent Task Sorting (Gap 1)
     // -------------------------------------------------------------------------
     console.log("[测试 1] 已完成任务按完成时间逆序稳定排序测试 (Gap 1)...");
-    const tasksResp = await getTasksApi();
+    const tasksResp = await getTasksApi(
+      new NextRequest("http://localhost:3000/api/tasks", {
+        headers: { "x-session-id": uiTestSessionId },
+      })
+    );
     const tasksData: TaskSummaryResponse[] = await tasksResp.json();
     const sortedCompletedTasks = filterCompletedTasks(tasksData);
 
@@ -197,12 +205,16 @@ async function runAnalysisUiVerification() {
     const targetCompletedTask = sortedCompletedTasks.find((t) => t.id === task1.id);
 
     // Call deterministic-report API
-    const reqReport = new NextRequest(`http://localhost:3000/api/tasks/${task1.id}/deterministic-report`);
+    const reqReport = new NextRequest(`http://localhost:3000/api/tasks/${task1.id}/deterministic-report`, {
+      headers: { "x-session-id": uiTestSessionId },
+    });
     const respReport = await getDeterministicReportApi(reqReport, { params: Promise.resolve({ id: task1.id }) });
     const reportData = await respReport.json();
 
     // Call ai-analysis API
-    const reqAi = new NextRequest(`http://localhost:3000/api/tasks/${task1.id}/ai-analysis`);
+    const reqAi = new NextRequest(`http://localhost:3000/api/tasks/${task1.id}/ai-analysis`, {
+      headers: { "x-session-id": uiTestSessionId },
+    });
     const respAi = await getAiAnalysisApi(reqAi, { params: Promise.resolve({ id: task1.id }) });
     const aiData = await respAi.json();
 
