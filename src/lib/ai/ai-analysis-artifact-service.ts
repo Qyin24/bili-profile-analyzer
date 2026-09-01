@@ -11,7 +11,7 @@
  * - Comprehensive metadata consistency checks (artifact vs payload vs source report).
  * - Strict schema and invariant validation before writing and after reading.
  * - Immutable upon initial persistence: identical repeat writes are idempotent, different writes are rejected.
- * - Terminal tasks cannot have AI analysis artifacts added or modified.
+ * - Immutable once written: identical repeat writes are idempotent, different writes are rejected. Terminal (COMPLETED/FAILED/CANCELLED) tasks may be backfilled when no artifact exists, or returned idempotently when identical.
  * - Zero reading/writing/propagation of SnapshotField.value, self-profile text, raw public body text, or credentials.
  * - Error Sanitization: All error messages are fixed, controlled strings (no dynamic IDs, providers, JSON fragments, or Prisma messages).
  * - Zero raw Prisma exception rethrow: All uncontrolled ORM errors are converted to AiAnalysisPersistenceError / INTERNAL_SERVER_ERROR.
@@ -118,11 +118,6 @@ export async function persistAiAnalysisForTask(
 
   if (!task) {
     throw new TaskNotFoundError("未找到指定的分析任务");
-  }
-
-  const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "CANCELLED"];
-  if (TERMINAL_STATUSES.includes(task.taskStatus)) {
-    throw new TerminalTaskAiAnalysisError("终态任务不可再新增或修改 AI 分析工件");
   }
 
   // 2. Read the task's DeterministicReportArtifact
@@ -334,11 +329,6 @@ export async function persistAiDegradedArtifactForTask(
 
   if (!task) {
     throw new TaskNotFoundError("未找到指定的分析任务");
-  }
-
-  const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "CANCELLED"];
-  if (TERMINAL_STATUSES.includes(task.taskStatus)) {
-    throw new TerminalTaskAiAnalysisError("终态任务不可再新增或修改 AI 分析工件");
   }
 
   // 2. Read deterministic report artifact
