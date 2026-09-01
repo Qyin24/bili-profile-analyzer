@@ -485,7 +485,8 @@ export async function createTaskWithSnapshot(
   dto: CreateTaskDto,
   profileId?: string,
   _barrierHook?: () => Promise<void>,
-  sessionId?: string
+  sessionId?: string,
+  isTest = false
 ) {
   const { platformUid, displayName, selfProvidedConsentConfirmed } = dto;
 
@@ -584,6 +585,7 @@ export async function createTaskWithSnapshot(
             platform: "BILIBILI",
             platformUid: cleanUid,
             displayName: cleanName,
+            isTest,
           },
         });
 
@@ -592,6 +594,7 @@ export async function createTaskWithSnapshot(
           data: {
             targetId: target.id,
             sessionId: sessionId || null,
+            isTest,
             taskStatus: "PENDING",
             pipelineStage: "COLLECT",
             outcome: "NONE",
