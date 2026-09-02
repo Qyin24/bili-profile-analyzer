@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useMockTask } from "@/lib/mock-task-context";
 import { useAiConfig } from "@/lib/ai-config-context";
 import {
   mapHttpErrorToSafeMessage,
@@ -24,7 +23,11 @@ import {
   Loader2,
   FileText,
   RotateCcw,
+  UserCheck,
+  ExternalLink,
 } from "lucide-react";
+
+import Link from "next/link";
 
 interface NaturalStep {
   id: number;
@@ -84,7 +87,6 @@ type AnalysisStatus = "IDLE" | "RUNNING" | "COMPLETED" | "FAILED";
 
 export default function HomePage() {
   const router = useRouter();
-  const { startDemoAnalysis, completeAllStages } = useMockTask();
   const { aiConfig } = useAiConfig();
 
   // Form states
@@ -103,6 +105,10 @@ export default function HomePage() {
   const [pipelineStage, setPipelineStage] = React.useState<PipelineStage | null>(null);
   const [stageMessage, setStageMessage] = React.useState<string>("");
   const [progress, setProgress] = React.useState<number>(0);
+
+  // Self-profile consent state (mirrors Dashboard TaskCreationCard)
+  const [hasSelfProfileFields, setHasSelfProfileFields] = React.useState(false);
+  const [selfProvidedConsentConfirmed, setSelfProvidedConsentConfirmed] = React.useState(false);
 
   // Polling ref to prevent concurrent loops or leaks
   const pollingTimerRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -161,7 +167,6 @@ export default function HomePage() {
           stopPolling();
           clearActiveSession();
           setAnalysisStatus("COMPLETED");
-          completeAllStages();
 
           // Auto-redirect to specific analysis report
           if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
@@ -178,7 +183,7 @@ export default function HomePage() {
         // Transient network glitch during polling; will continue on next tick
       }
     },
-    [router, stopPolling, clearActiveSession, completeAllStages]
+    [router, stopPolling, clearActiveSession]
   );
 
   // Starts (or restarts) the polling loop for a task and resets its elapsed-time budget.
@@ -193,6 +198,27 @@ export default function HomePage() {
     },
     [pollTaskStatus, stopPolling]
   );
+
+  // Mirror Dashboard's genuine self-profile consent state (fail-closed default: false)
+  const refreshSelfProfileStatus = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/self-profile", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const active = Boolean(data?.hasAllowedFieldsForAnalysis);
+      setHasSelfProfileFields(active);
+      if (!active) {
+        setSelfProvidedConsentConfirmed(false);
+      }
+    } catch {
+      // Ignore background check failure; default (false) is safe fail-closed
+    }
+  }, []);
+
+  // On mount: fetch self-profile status so the consent checkbox appears only when relevant
+  React.useEffect(() => {
+    refreshSelfProfileStatus();
+  }, [refreshSelfProfileStatus]);
 
   // On component mount: Recover running task if active in sessionStorage
   React.useEffect(() => {
@@ -300,9 +326,6 @@ export default function HomePage() {
     setStageMessage("正在创建分析任务并校验环境...");
     setProgress(5);
 
-    // 1. Synchronize in-memory MockTaskContext
-    startDemoAnalysis(uid);
-
     // 2. Call backend POST /api/tasks to create persistent record
     try {
       const createRes = await fetch("/api/tasks", {
@@ -311,13 +334,27 @@ export default function HomePage() {
         body: JSON.stringify({
           platformUid: uid,
           displayName: `用户 (${uid})`,
-          selfProvidedConsentConfirmed: true,
+          // Strict Fail-Closed Authorization: submit the actual user consent state
+          // (mirrors Dashboard TaskCreationCard). Defaults to false when no self-profile
+          // fields exist, so un-consented self-profile data can never enter analysis.
+          selfProvidedConsentConfirmed,
         }),
       });
 
       const createData = await createRes.json().catch(() => null);
       if (!createRes.ok) {
         const safeErr = mapHttpErrorToSafeMessage(createRes.status, createData?.error?.code);
+        if (safeErr.isConsentRequired) {
+          // Recover genuine consent UI state instead of failing into the FAILED screen,
+          // so the user can check the consent box and resubmit.
+          await refreshSelfProfileStatus();
+          setSelfProvidedConsentConfirmed(false);
+          setAnalysisStatus("IDLE");
+          setErrorMessage(
+            "使用你已开启的个人说明前，需要先勾选确认授权。请在下方勾选授权框后重试。"
+          );
+          return;
+        }
         setAnalysisStatus("FAILED");
         setErrorMessage(safeErr.message);
         return;
@@ -534,6 +571,41 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+
+              {/* Self-Profile Consent Confirmation (mirrors Dashboard TaskCreationCard) */}
+              {hasSelfProfileFields && (
+                <div className="p-3.5 rounded-2xl bg-muted/40 border border-border/70 space-y-2">
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-foreground font-medium">
+                      你已开启部分个人说明。开始分析前需要再次确认授权。
+                    </p>
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        id="home-self-consent-checkbox"
+                        checked={selfProvidedConsentConfirmed}
+                        onChange={(e) => setSelfProvidedConsentConfirmed(e.target.checked)}
+                        className="w-4 h-4 mt-0.5 text-primary rounded accent-primary cursor-pointer"
+                      />
+                      <label
+                        htmlFor="home-self-consent-checkbox"
+                        className="text-xs text-foreground font-medium leading-relaxed cursor-pointer select-none"
+                      >
+                        我确认有权提供，并授权本次使用这些个人说明。
+                      </label>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-1 pl-6 leading-relaxed">
+                    <UserCheck className="w-3 h-3 text-primary shrink-0" />
+                    <span>已在设置中开启个人说明。若不希望使用，可在</span>
+                    <Link href="/settings" className="text-primary hover:underline inline-flex items-center gap-0.5 font-medium">
+                      <span>设置页面</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </Link>
+                    <span>关闭或撤回授权。</span>
+                  </div>
+                </div>
+              )}
 
               {/* Start Action */}
               <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
