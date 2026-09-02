@@ -4,7 +4,7 @@
 
 export * from "@/types/ai-analysis";
 export { validateAiAnalysisResult } from "./validator";
-export { generateMockAiAnalysis, mockAiProvider } from "./mock-provider";
+export { generateDeterministicAiAnalysis, deterministicAiProvider } from "./deterministic-provider";
 export { getAiProvider, generateAiAnalysis } from "./provider-registry";
 export {
   normalizeOpenAiBaseUrl,
@@ -15,7 +15,7 @@ export {
 } from "./openai-provider";
 export {
   persistAiAnalysisForTask,
-  persistMockAiAnalysisForTask,
+  persistDeterministicAiAnalysisForTask,
   persistAiDegradedArtifactForTask,
   DESENSITIZED_AI_UNAVAILABLE_SUMMARY,
   DESENSITIZED_AI_UNAVAILABLE_LIMITATION,

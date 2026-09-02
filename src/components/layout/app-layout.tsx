@@ -40,7 +40,7 @@ export function AppLayout({
               <span className="font-bold text-sm tracking-tight text-foreground">BiliProfile</span>
             </Link>
             <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary rounded-full border border-primary/20 shrink-0">
-              本地演示
+              隐私优先
             </span>
           </div>
 
@@ -56,7 +56,7 @@ export function AppLayout({
             )}
             <div className="text-[11px] text-muted-foreground flex items-center gap-1">
               <Info className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <span className="hidden sm:inline">受控演示流程</span>
+              <span className="hidden sm:inline">仅公开数据</span>
             </div>
           </div>
         </header>
@@ -65,7 +65,7 @@ export function AppLayout({
         <div className="bg-primary/10 border-b border-primary/15 px-3 py-2 text-xs font-medium text-foreground/90 flex items-center justify-center text-center">
           <div className="flex items-center justify-center gap-1.5 text-[11px] sm:text-xs leading-relaxed text-center">
             <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
-            <span>本地演示环境 · 不访问 Bilibili 与外部网络</span>
+            <span>仅基于公开可见的 Bilibili 数据与你主动补充的内容进行分析</span>
           </div>
         </div>
 

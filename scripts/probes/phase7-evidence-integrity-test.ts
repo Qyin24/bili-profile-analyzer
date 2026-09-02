@@ -21,7 +21,7 @@ import {
   buildDeterministicReportInput,
 } from "../../src/lib/processing/pipeline";
 import {
-  generateMockAiAnalysis,
+  generateDeterministicAiAnalysis,
   validateAiAnalysisResult,
   AiAnalysisResult,
 } from "../../src/lib/ai";
@@ -220,7 +220,7 @@ async function runEvidenceIntegritySuite() {
   // TEST 8 & 9: Mock Provider Exploratory Persona, Weak Signal Restraint & Cross-Domain
   // -------------------------------------------------------------------------
   console.log("\n[TEST 8~9] Mock Provider 动态画像、弱信号克制与跨领域模式测试...");
-  const mockAiOutput = await generateMockAiAnalysis(reportInput2);
+  const mockAiOutput = await generateDeterministicAiAnalysis(reportInput2);
   const valMock = validateAiAnalysisResult(mockAiOutput, reportInput2);
 
   // Check weak signal restraint

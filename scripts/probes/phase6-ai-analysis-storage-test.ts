@@ -2,10 +2,10 @@
  * BiliProfile Analyzer — Phase 6.2 AI Analysis Storage & API Integration Test Suite
  *
  * Verifies:
- * 1. Valid task + deterministic report -> persistMockAiAnalysisForTask creates AI artifact; reading returns semantically equal result to generateAiAnalysis(report, "MOCK").
+ * 1. Valid task + deterministic report -> persistDeterministicAiAnalysisForTask creates AI artifact; reading returns semantically equal result to generateAiAnalysis(report, "MOCK").
  * 2. Idempotency: Repeating persist for same task with same report returns existing artifact safely without mutation (DB has 1 row).
  * 3. Non-existent task persist is rejected with zero writes.
- * 4. Terminal task cannot have AI analysis artifact persisted or modified.
+ * 4. Terminal task AI artifact handling: absent -> backfill allowed; identical -> idempotent return; different -> conflict rejected; missing source report -> rejected.
  * 5. Task without DeterministicReportArtifact fails to persist AI artifact with zero writes.
  * 6. Task without AI artifact returns 404 + AI_ANALYSIS_NOT_FOUND on GET API.
  * 7. Read-only API returns safe AI analysis and JSON string has zero leaks (sentinels, snapshot values, self-profile, credentials).
@@ -36,12 +36,12 @@ import {
 } from "../../src/lib/processing/pipeline";
 import { persistDeterministicReportForTask } from "../../src/lib/deterministic-report-service";
 import {
-  persistMockAiAnalysisForTask,
+  persistDeterministicAiAnalysisForTask,
   getAiAnalysisForTask,
   generateAiAnalysis,
   TaskNotFoundError,
-  TerminalTaskAiAnalysisError,
   SourceReportNotFoundError,
+  AiAnalysisConflictError,
   AI_ANALYSIS_SCHEMA_VERSION,
 } from "../../src/lib/ai";
 import { GET } from "../../src/app/api/tasks/[id]/ai-analysis/route";
@@ -116,6 +116,26 @@ async function runAiStorageVerification() {
     });
 
     const taskA2_terminal = await prisma.analysisTask.create({
+      data: {
+        targetId: targetA.id,
+        taskStatus: "COMPLETED",
+        pipelineStage: "REPORT",
+        progress: 100,
+        completedAt: new Date(),
+      },
+    });
+
+    const taskA4_terminal_diff = await prisma.analysisTask.create({
+      data: {
+        targetId: targetA.id,
+        taskStatus: "COMPLETED",
+        pipelineStage: "REPORT",
+        progress: 100,
+        completedAt: new Date(),
+      },
+    });
+
+    const taskA5_terminal_noreport = await prisma.analysisTask.create({
       data: {
         targetId: targetA.id,
         taskStatus: "COMPLETED",
@@ -202,11 +222,38 @@ async function runAiStorageVerification() {
       },
     });
 
+    // Report for taskA4 (terminal + divergent pre-existing AI artifact -> conflict test)
+    await prisma.deterministicReportArtifact.create({
+      data: {
+        taskId: taskA4_terminal_diff.id,
+        schemaVersion: reportInputA.schemaVersion,
+        taxonomyVersion: reportInputA.taxonomyVersion,
+        reportData: JSON.stringify(reportInputA),
+      },
+    });
+
+    // Pre-existing DIFFERENT AI artifact for taskA4 (to trigger conflict on re-persist)
+    await prisma.aiAnalysisArtifact.create({
+      data: {
+        taskId: taskA4_terminal_diff.id,
+        provider: "MOCK",
+        schemaVersion: AI_ANALYSIS_SCHEMA_VERSION,
+        reportSchemaVersion: reportInputA.schemaVersion,
+        taxonomyVersion: reportInputA.taxonomyVersion,
+        analysisData: JSON.stringify({
+          provider: "MOCK",
+          summary: "PRE-EXISTING DIVERGENT ARTIFACT",
+          findings: [],
+          limitations: [],
+        }),
+      },
+    });
+
     // -------------------------------------------------------------------------
     // Test 1: Persist and Read AI Analysis Artifact
     // -------------------------------------------------------------------------
     console.log("[测试 1] 写入 MOCK AI 分析结果并读取，验证工件语义一致性...");
-    const persistedA = await persistMockAiAnalysisForTask(taskA1.id);
+    const persistedA = await persistDeterministicAiAnalysisForTask(taskA1.id);
     const readA = await getAiAnalysisForTask(taskA1.id);
 
     const directExpectedA = await generateAiAnalysis(reportInputA, "MOCK");
@@ -227,7 +274,7 @@ async function runAiStorageVerification() {
     // Test 2: Idempotent Repeat Persist
     // -------------------------------------------------------------------------
     console.log("\n[测试 2] 同一 Task 重复写入：安全幂等且返回同一 artifactId...");
-    const persistedRepeat = await persistMockAiAnalysisForTask(taskA1.id);
+    const persistedRepeat = await persistDeterministicAiAnalysisForTask(taskA1.id);
     const rowCountA = await prisma.aiAnalysisArtifact.count({
       where: { taskId: taskA1.id },
     });
@@ -245,7 +292,7 @@ async function runAiStorageVerification() {
     console.log("\n[测试 3] 不存在的 Task 写入：明确拒绝且零写入...");
     let nonExistentThrown = false;
     try {
-      await persistMockAiAnalysisForTask("non_existent_task_id_99999");
+      await persistDeterministicAiAnalysisForTask("non_existent_task_id_99999");
     } catch (err) {
       if (err instanceof TaskNotFoundError) {
         nonExistentThrown = true;
@@ -261,25 +308,69 @@ async function runAiStorageVerification() {
     if (!pass3) allPassed = false;
 
     // -------------------------------------------------------------------------
-    // Test 4: Terminal Task Persist Rejected
+    // Test 4: Terminal Task AI Artifact Handling (backfill / idempotency / conflict / missing-source)
     // -------------------------------------------------------------------------
-    console.log("\n[测试 4] 终态 Task (COMPLETED) 不允许新增或修改 AI 工件...");
-    let terminalThrown = false;
-    try {
-      await persistMockAiAnalysisForTask(taskA2_terminal.id);
-    } catch (err) {
-      if (err instanceof TerminalTaskAiAnalysisError) {
-        terminalThrown = true;
-      }
-    }
+    console.log("\n[测试 4] 终态 Task AI 工件处理：缺则补生成、相同则幂等、不同则冲突拒绝、缺源报告则拒绝...");
 
-    const terminalCount = await prisma.aiAnalysisArtifact.count({
+    // 4a. Terminal task with report but no AI artifact -> backfill allowed
+    const backfilled = await persistDeterministicAiAnalysisForTask(taskA2_terminal.id);
+    const backfillCount = await prisma.aiAnalysisArtifact.count({
       where: { taskId: taskA2_terminal.id },
     });
+    const pass4a = !!backfilled.artifactId && backfillCount === 1;
+    console.log(`  - [4a] 终态缺工件补生成 (create, count=1): ${pass4a ? "✅ 通过" : "❌ 失败"}`);
+    if (!pass4a) allPassed = false;
 
-    const pass4 = terminalThrown && terminalCount === 0;
-    console.log(`  - 终态 Task 拦截 (抛出 TerminalTaskAiAnalysisError, 零写入): ${pass4 ? "✅ 通过" : "❌ 失败"}`);
-    if (!pass4) allPassed = false;
+    // 4b. Terminal task with identical existing artifact -> idempotent return
+    const idem = await persistDeterministicAiAnalysisForTask(taskA2_terminal.id);
+    const idemCount = await prisma.aiAnalysisArtifact.count({
+      where: { taskId: taskA2_terminal.id },
+    });
+    const pass4b =
+      idem.artifactId === backfilled.artifactId &&
+      idemCount === 1;
+    console.log(`  - [4b] 终态相同工件幂等返回 (同 artifactId, count=1): ${pass4b ? "✅ 通过" : "❌ 失败"}`);
+    if (!pass4b) allPassed = false;
+
+    // 4c. Terminal task with a different pre-existing artifact -> conflict rejected, no overwrite
+    let conflictThrown = false;
+    try {
+      await persistDeterministicAiAnalysisForTask(taskA4_terminal_diff.id);
+    } catch (err) {
+      if (err instanceof AiAnalysisConflictError) {
+        conflictThrown = true;
+      }
+    }
+    const conflictCount = await prisma.aiAnalysisArtifact.count({
+      where: { taskId: taskA4_terminal_diff.id },
+    });
+    const conflictArtifact = await prisma.aiAnalysisArtifact.findUnique({
+      where: { taskId: taskA4_terminal_diff.id },
+      select: { analysisData: true },
+    });
+    const pass4c =
+      conflictThrown &&
+      conflictCount === 1 &&
+      !!conflictArtifact &&
+      conflictArtifact.analysisData.includes("PRE-EXISTING DIVERGENT ARTIFACT");
+    console.log(`  - [4c] 终态不同工件冲突拒绝 (抛出 AiAnalysisConflictError, 零覆盖): ${pass4c ? "✅ 通过" : "❌ 失败"}`);
+    if (!pass4c) allPassed = false;
+
+    // 4d. Terminal task with no source report -> rejected with SourceReportNotFoundError
+    let noSourceThrown = false;
+    try {
+      await persistDeterministicAiAnalysisForTask(taskA5_terminal_noreport.id);
+    } catch (err) {
+      if (err instanceof SourceReportNotFoundError) {
+        noSourceThrown = true;
+      }
+    }
+    const noSourceCount = await prisma.aiAnalysisArtifact.count({
+      where: { taskId: taskA5_terminal_noreport.id },
+    });
+    const pass4d = noSourceThrown && noSourceCount === 0;
+    console.log(`  - [4d] 终态缺源报告拒绝 (抛出 SourceReportNotFoundError, 零写入): ${pass4d ? "✅ 通过" : "❌ 失败"}`);
+    if (!pass4d) allPassed = false;
 
     // -------------------------------------------------------------------------
     // Test 5: Task without DeterministicReportArtifact Persist Rejected
@@ -287,7 +378,7 @@ async function runAiStorageVerification() {
     console.log("\n[测试 5] 缺少确定性报告工件的任务写入：明确拒绝且零写入...");
     let noReportThrown = false;
     try {
-      await persistMockAiAnalysisForTask(taskA3_no_report.id);
+      await persistDeterministicAiAnalysisForTask(taskA3_no_report.id);
     } catch (err) {
       if (err instanceof SourceReportNotFoundError) {
         noReportThrown = true;
@@ -352,7 +443,7 @@ async function runAiStorageVerification() {
     // Test 8: Two Tasks Isolation
     // -------------------------------------------------------------------------
     console.log("\n[测试 8] 两个不同 Task (Task A1 与 Task B1) 的 AI 工件严格隔离...");
-    const persistedB = await persistMockAiAnalysisForTask(taskB1.id);
+    const persistedB = await persistDeterministicAiAnalysisForTask(taskB1.id);
     const readB = await getAiAnalysisForTask(taskB1.id);
 
     const pass8 =
@@ -647,10 +738,10 @@ async function runAiStorageVerification() {
     });
     await persistDeterministicReportForTask(taskC2.id, analysisA);
 
-    // Concurrently invoke persistMockAiAnalysisForTask on taskC2
+    // Concurrently invoke persistDeterministicAiAnalysisForTask on taskC2
     const [resConc1, resConc2] = await Promise.all([
-      persistMockAiAnalysisForTask(taskC2.id),
-      persistMockAiAnalysisForTask(taskC2.id),
+      persistDeterministicAiAnalysisForTask(taskC2.id),
+      persistDeterministicAiAnalysisForTask(taskC2.id),
     ]);
 
     const countConc = await prisma.aiAnalysisArtifact.count({

@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { MockTaskProvider } from "@/lib/mock-task-context";
 import { AiConfigProvider } from "@/lib/ai-config-context";
 
 export const viewport: Viewport = {
@@ -10,8 +9,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "BiliProfile Analyzer · 演示模式",
-  description: "面向普通 Bilibili 用户的公开数据画像分析 Web App (本地演示模式)",
+  title: "BiliProfile Analyzer",
+  description: "面向 Bilibili 用户的公开内容偏好分析工具：基于公开可见数据，生成可回看的内容主题与关注关系画像。",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "32x32" },
@@ -29,7 +28,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className="antialiased font-sans">
         <AiConfigProvider>
-          <MockTaskProvider>{children}</MockTaskProvider>
+          {children}
         </AiConfigProvider>
       </body>
     </html>
