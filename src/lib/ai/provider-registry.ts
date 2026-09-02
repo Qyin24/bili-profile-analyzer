@@ -19,7 +19,7 @@ import {
 } from "@/types/ai-analysis";
 import { DeterministicReportInput } from "@/types/processing";
 import { validateDeterministicReportInput } from "@/lib/processing/pipeline";
-import { mockAiProvider } from "./mock-provider";
+import { deterministicAiProvider } from "./deterministic-provider";
 import { createOpenAiCompatibleProvider } from "./openai-provider";
 import { validateAiAnalysisResult } from "./validator";
 
@@ -30,7 +30,7 @@ export interface GenerateAiAnalysisOptions {
 }
 
 const REGISTERED_PROVIDERS: Record<string, AiAnalysisProvider> = {
-  MOCK: mockAiProvider,
+  MOCK: deterministicAiProvider,
 };
 
 /**
@@ -43,7 +43,7 @@ export function getAiProvider(
 ): AiAnalysisProvider {
   // Default to MOCK when omitted
   if (providerId === undefined) {
-    return mockAiProvider;
+    return deterministicAiProvider;
   }
 
   // Non-string or empty strings are rejected with fixed controlled error

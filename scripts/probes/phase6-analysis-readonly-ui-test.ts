@@ -20,7 +20,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "../../src/lib/prisma";
 import { runDeterministicAnalysis } from "../../src/lib/processing/pipeline";
-import { completeTaskWithOfflineMockAi } from "../../src/lib/task-ai-workflow-service";
+import { completeTaskWithOfflineDeterministicAi } from "../../src/lib/task-ai-workflow-service";
 import {
   buildAnalysisViewModel,
   filterCompletedTasks,
@@ -121,7 +121,7 @@ async function runAnalysisUiVerification() {
     ];
 
     const analysisResult1 = runDeterministicAnalysis(sampleRecords1);
-    await completeTaskWithOfflineMockAi(task1.id, analysisResult1);
+    await completeTaskWithOfflineDeterministicAi(task1.id, analysisResult1);
 
     // Explicitly set task1 to an older date
     await prisma.analysisTask.update({
@@ -152,7 +152,7 @@ async function runAnalysisUiVerification() {
       },
     ];
     const analysisResult2 = runDeterministicAnalysis(sampleRecords2);
-    await completeTaskWithOfflineMockAi(task2.id, analysisResult2);
+    await completeTaskWithOfflineDeterministicAi(task2.id, analysisResult2);
 
     // Explicitly set task2 to a newer date
     await prisma.analysisTask.update({

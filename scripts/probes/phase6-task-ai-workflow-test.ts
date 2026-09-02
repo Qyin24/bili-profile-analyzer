@@ -12,7 +12,7 @@
  * 7. Concurrency: Concurrent workflow runs on same task with same input both succeed, return matching artifact IDs, DB contains exactly 1 row each, task COMPLETED.
  * 8. Conflicting input against existing immutable artifacts -> controlled rejection with TaskWorkflowConflictError, error.code === "CONFLICT_ERROR".
  * 9. Phase 6.3.1 Terminal Race Protection:
- *    - Task updated to CANCELLED just before final completion update -> completeTaskWithOfflineMockAi is rejected, task remains CANCELLED in DB (NOT COMPLETED), error.code === "TERMINAL_STATE_ERROR".
+ *    - Task updated to CANCELLED just before final completion update -> completeTaskWithOfflineDeterministicAi is rejected, task remains CANCELLED in DB (NOT COMPLETED), error.code === "TERMINAL_STATE_ERROR".
  * 10. Phase 6.3.1 Comprehensive Error Code Assertions:
  *    - All workflow error classes export stable readonly `code` properties matching TaskAiWorkflowErrorCode.
  * 11. Zero leakage of raw bodies, snapshot fields, self-profile data, credentials, Prisma errors, stack traces, or validation error arrays.
@@ -36,7 +36,7 @@ import {
   getAiAnalysisForTask,
 } from "../../src/lib/ai";
 import {
-  completeTaskWithOfflineMockAi,
+  completeTaskWithOfflineDeterministicAi,
   TaskWorkflowTaskNotFoundError,
   TaskWorkflowTerminalStateError,
   TaskWorkflowConflictError,
@@ -165,7 +165,7 @@ async function runWorkflowVerification() {
     // Test 1: Full Orchestrated Completion Flow (Report -> AI -> Complete Task)
     // -------------------------------------------------------------------------
     console.log("[测试 1] 有效非终态任务离线编排完成测试 (确定性报告 -> MOCK AI -> 任务完成)...");
-    const result1 = await completeTaskWithOfflineMockAi(taskA1.id, analysisA);
+    const result1 = await completeTaskWithOfflineDeterministicAi(taskA1.id, analysisA);
 
     // Verify task state in database
     const dbTask1 = await prisma.analysisTask.findUnique({
@@ -208,7 +208,7 @@ async function runWorkflowVerification() {
     // Test 2: Idempotent Repeat Execution on COMPLETED Task
     // -------------------------------------------------------------------------
     console.log("\n[测试 2] 已完成任务重复调用编排：安全幂等且返回同一工件标识...");
-    const result2 = await completeTaskWithOfflineMockAi(taskA1.id, analysisA);
+    const result2 = await completeTaskWithOfflineDeterministicAi(taskA1.id, analysisA);
 
     const reportCountA = await prisma.deterministicReportArtifact.count({
       where: { taskId: taskA1.id },
@@ -233,7 +233,7 @@ async function runWorkflowVerification() {
     console.log("\n[测试 3] 不存在的任务编排：受控拒绝且零工件写入 (TASK_NOT_FOUND)...");
     let nonExistentCode: string | null = null;
     try {
-      await completeTaskWithOfflineMockAi("non_existent_wf_task_9999", analysisA);
+      await completeTaskWithOfflineDeterministicAi("non_existent_wf_task_9999", analysisA);
     } catch (err: unknown) {
       if (err instanceof TaskWorkflowTaskNotFoundError) {
         nonExistentCode = err.code;
@@ -278,7 +278,7 @@ async function runWorkflowVerification() {
 
     let failedCode: string | null = null;
     try {
-      await completeTaskWithOfflineMockAi(taskB_failed.id, analysisB);
+      await completeTaskWithOfflineDeterministicAi(taskB_failed.id, analysisB);
     } catch (err: unknown) {
       if (err instanceof TaskWorkflowTerminalStateError) {
         failedCode = err.code;
@@ -332,7 +332,7 @@ async function runWorkflowVerification() {
         throw new Error(`AI create simulated error: ${SENTINEL_AI_CREATE_FAIL}`);
       };
 
-      await completeTaskWithOfflineMockAi(taskC1.id, analysisA);
+      await completeTaskWithOfflineDeterministicAi(taskC1.id, analysisA);
     } catch (err: unknown) {
       if (
         err instanceof TaskWorkflowAiPersistError ||
@@ -395,7 +395,7 @@ async function runWorkflowVerification() {
       },
     });
 
-    const resultD1 = await completeTaskWithOfflineMockAi(taskD1.id, analysisB);
+    const resultD1 = await completeTaskWithOfflineDeterministicAi(taskD1.id, analysisB);
 
     const pass6 =
       resultD1.taskId === taskD1.id &&
@@ -420,8 +420,8 @@ async function runWorkflowVerification() {
     });
 
     const [resConc1, resConc2] = await Promise.all([
-      completeTaskWithOfflineMockAi(taskD2.id, analysisB),
-      completeTaskWithOfflineMockAi(taskD2.id, analysisB),
+      completeTaskWithOfflineDeterministicAi(taskD2.id, analysisB),
+      completeTaskWithOfflineDeterministicAi(taskD2.id, analysisB),
     ]);
 
     const reportCountD2 = await prisma.deterministicReportArtifact.count({
@@ -454,7 +454,7 @@ async function runWorkflowVerification() {
     let conflictCode: string | null = null;
     try {
       // Try to re-complete taskA1 (completed with analysisA) using analysisB
-      await completeTaskWithOfflineMockAi(taskA1.id, analysisB);
+      await completeTaskWithOfflineDeterministicAi(taskA1.id, analysisB);
     } catch (err: unknown) {
       if (err instanceof TaskWorkflowConflictError) {
         conflictCode = err.code;
@@ -506,7 +506,7 @@ async function runWorkflowVerification() {
         return originalAiFindUnique.apply(prisma.aiAnalysisArtifact, args);
       };
 
-      await completeTaskWithOfflineMockAi(taskE1.id, analysisA);
+      await completeTaskWithOfflineDeterministicAi(taskE1.id, analysisA);
     } catch (err: unknown) {
       if (err instanceof TaskWorkflowTerminalStateError) {
         raceCancelledCode = err.code;

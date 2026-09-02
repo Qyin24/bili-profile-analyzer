@@ -5,7 +5,6 @@ import {
   Search,
   Filter,
   Bookmark,
-  ShieldAlert,
 } from "lucide-react";
 
 export interface EntityFollowItem {
@@ -45,7 +44,6 @@ export interface EntitiesViewProps {
   topicTaxonomy?: TopicTaxonomyItem[];
   entities?: EntityFollowItem[];
   selfProfile?: SelfProfileItem;
-  isDemo?: boolean;
 }
 
 export function EntitiesView({
@@ -53,7 +51,6 @@ export function EntitiesView({
   topicTaxonomy = [],
   entities = [],
   selfProfile,
-  isDemo = false,
 }: EntitiesViewProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedTopicId, setSelectedTopicId] = React.useState<string | "ALL">("ALL");
@@ -74,19 +71,6 @@ export function EntitiesView({
 
   return (
     <div className="space-y-6">
-      {/* Demo Notice Banner */}
-      {isDemo && (
-        <div className="bg-primary/10 border border-primary/25 rounded-3xl p-5 text-xs text-foreground/90 space-y-1.5 shadow-sm">
-          <div className="font-bold flex items-center gap-2 text-primary text-sm">
-            <ShieldAlert className="w-4 h-4" />
-            <span>受控演示模式声明</span>
-          </div>
-          <p className="text-muted-foreground leading-relaxed text-xs">
-            当前展示为受控演示数据：用于演示关注博主与内容主题分类映射交互；不代表真实账号数据。
-          </p>
-        </div>
-      )}
-
       {/* Target Summary Card */}
       {target && (
         <div className="bg-card rounded-3xl p-6 sm:p-7 border border-border/80 shadow-sm space-y-4">
@@ -103,7 +87,7 @@ export function EntitiesView({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  演示目标账号
+                  分析目标账号
                 </p>
               </div>
             </div>
@@ -183,8 +167,8 @@ export function EntitiesView({
             </div>
           ) : (
             <div className="p-8 text-center text-xs text-muted-foreground bg-background/50 rounded-2xl border border-border/50 space-y-1">
-              <div className="font-bold text-foreground">暂无可验证实体数据</div>
-              <p>当前任务未配置自述信息快照；不代表该用户在 B 站没有关注博主或公开内容。</p>
+              <div className="font-bold text-foreground">暂无可展示的自述信息</div>
+              <p>在「设置」中填写自述信息后，这里会展示你的目标、专业方向与学习方向。</p>
             </div>
           )}
         </div>
@@ -252,9 +236,9 @@ export function EntitiesView({
 
             {filteredEntities.length === 0 ? (
               <div className="p-8 text-center space-y-2 bg-background/50 rounded-2xl border border-border/50">
-                <div className="font-bold text-foreground text-sm">暂无内容数据</div>
+                <div className="font-bold text-foreground text-sm">还没有内容主题与关注关系</div>
                 <p className="text-xs text-muted-foreground">
-                  受控数据门控下未检索到符合条件的关注博主或公开内容样本；不代表该用户在 B 站没有关注博主或公开内容。
+                  完成一次分析后，这里会展示你的内容主题与关注关系。当前还没有可展示的数据。
                 </p>
               </div>
             ) : (

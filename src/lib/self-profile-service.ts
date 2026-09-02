@@ -509,7 +509,7 @@ export async function createTaskWithSnapshot(
     throw new SelfProfileValidationError("VALIDATION_FAILED", "displayName 若提供则必须为字符串");
   }
 
-  const cleanName = displayName && displayName.trim() ? displayName.trim() : `演示用户 (${cleanUid})`;
+  const cleanName = displayName && displayName.trim() ? displayName.trim() : `用户 (${cleanUid})`;
 
   // Pure read query outside transaction (strictly read-only, zero create/upsert/mutation)
   const existingProfile = await readExistingProfileForTaskCandidate(profileId, prisma);

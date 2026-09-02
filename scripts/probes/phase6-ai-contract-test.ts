@@ -29,11 +29,11 @@ import {
   buildDeterministicReportInput,
 } from "../../src/lib/processing/pipeline";
 import {
-  generateMockAiAnalysis,
+  generateDeterministicAiAnalysis,
   validateAiAnalysisResult,
   generateAiAnalysis,
   getAiProvider,
-  mockAiProvider,
+  deterministicAiProvider,
   AI_ANALYSIS_SCHEMA_VERSION,
   AiAnalysisResult,
 } from "../../src/lib/ai";
@@ -88,8 +88,8 @@ async function runAiContractVerification() {
     // Test 1: Deterministic Reproducibility
     // -------------------------------------------------------------------------
     console.log("[测试 1] 严格确定性：同一 DeterministicReportInput 多次生成 AiAnalysisResult 完全一致...");
-    const aiRes1 = await generateMockAiAnalysis(reportInputStandard);
-    const aiRes2 = await generateMockAiAnalysis(reportInputStandard);
+    const aiRes1 = await generateDeterministicAiAnalysis(reportInputStandard);
+    const aiRes2 = await generateDeterministicAiAnalysis(reportInputStandard);
     const json1 = JSON.stringify(aiRes1);
     const json2 = JSON.stringify(aiRes2);
 
@@ -137,7 +137,7 @@ async function runAiContractVerification() {
     // Case 3a: Empty input
     const emptyAnalysis = runDeterministicAnalysis([]);
     const emptyReportInput = buildDeterministicReportInput(emptyAnalysis);
-    const emptyAiRes = await generateMockAiAnalysis(emptyReportInput);
+    const emptyAiRes = await generateDeterministicAiAnalysis(emptyReportInput);
     const valEmpty = validateAiAnalysisResult(emptyAiRes, emptyReportInput);
 
     const pass3a =
@@ -159,7 +159,7 @@ async function runAiContractVerification() {
     ];
     const unclassAnalysis = runDeterministicAnalysis(unclassRecords);
     const unclassReportInput = buildDeterministicReportInput(unclassAnalysis);
-    const unclassAiRes = await generateMockAiAnalysis(unclassReportInput);
+    const unclassAiRes = await generateDeterministicAiAnalysis(unclassReportInput);
     const valUnclass = validateAiAnalysisResult(unclassAiRes, unclassReportInput);
 
     const pass3b =
@@ -186,7 +186,7 @@ async function runAiContractVerification() {
     ];
     const partialAnalysis = runDeterministicAnalysis(partialRecords);
     const partialReportInput = buildDeterministicReportInput(partialAnalysis);
-    const partialAiRes = await generateMockAiAnalysis(partialReportInput);
+    const partialAiRes = await generateDeterministicAiAnalysis(partialReportInput);
     const valPartial = validateAiAnalysisResult(partialAiRes, partialReportInput);
 
     const hasSourceLimitationFinding = partialAiRes.findings.some(
@@ -322,7 +322,7 @@ async function runAiContractVerification() {
     console.log(`  - [5d2] 非法 Provider 拦截且零哨兵回显: ${pass5d2 ? "✅ 通过" : "❌ 失败"}`);
     if (!pass5d2) allPassed = false;
 
-    // Case 5e: Illegal DeterministicReportInput containing sentinel in generateMockAiAnalysis
+    // Case 5e: Illegal DeterministicReportInput containing sentinel in generateDeterministicAiAnalysis
     const SENTINEL_DIRTY_INPUT = "SENTINEL_DIRTY_INPUT_REPORT_9986";
     const dirtyReportInput = {
       ...reportInputStandard,
@@ -332,7 +332,7 @@ async function runAiContractVerification() {
     let mockErrorThrown = false;
     let mockErrorMessage = "";
     try {
-      await generateMockAiAnalysis(dirtyReportInput);
+      await generateDeterministicAiAnalysis(dirtyReportInput);
     } catch (err: any) {
       mockErrorThrown = true;
       mockErrorMessage = err instanceof Error ? err.message : String(err);
@@ -511,8 +511,8 @@ async function runAiContractVerification() {
     }
 
     const pass8e =
-      directMock === mockAiProvider &&
-      directMockExplicit === mockAiProvider &&
+      directMock === deterministicAiProvider &&
+      directMockExplicit === deterministicAiProvider &&
       getAiProvErr &&
       getAiProvErrMsg === "Unsupported AI provider" &&
       !getAiProvErrMsg.includes(SENTINEL_UNKNOWN_PROVIDER);

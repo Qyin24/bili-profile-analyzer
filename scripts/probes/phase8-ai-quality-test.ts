@@ -15,7 +15,7 @@ import {
   buildDeterministicReportInput,
 } from "../../src/lib/processing/pipeline";
 import {
-  generateMockAiAnalysis,
+  generateDeterministicAiAnalysis,
   validateAiAnalysisResult,
   AiAnalysisResult,
 } from "../../src/lib/ai";
@@ -41,7 +41,7 @@ async function runPhase8QualityProbe() {
 
   const analysis1 = runDeterministicAnalysis(recordsTest1);
   const input1 = buildDeterministicReportInput(analysis1);
-  const aiOutput1 = await generateMockAiAnalysis(input1);
+  const aiOutput1 = await generateDeterministicAiAnalysis(input1);
   const val1 = validateAiAnalysisResult(aiOutput1, input1);
 
   const crossDomainFinding = aiOutput1.findings.find(
@@ -72,7 +72,7 @@ async function runPhase8QualityProbe() {
 
   const analysis2 = runDeterministicAnalysis(recordsTest2);
   const input2 = buildDeterministicReportInput(analysis2);
-  const aiOutput2 = await generateMockAiAnalysis(input2);
+  const aiOutput2 = await generateDeterministicAiAnalysis(input2);
   const val2 = validateAiAnalysisResult(aiOutput2, input2);
 
   const findingText2 = aiOutput2.findings.map((f) => f.statement).join("\n");
@@ -109,7 +109,7 @@ async function runPhase8QualityProbe() {
 
   const analysis3 = runDeterministicAnalysis(recordsTest3);
   const input3 = buildDeterministicReportInput(analysis3);
-  const aiOutput3 = await generateMockAiAnalysis(input3);
+  const aiOutput3 = await generateDeterministicAiAnalysis(input3);
   const val3 = validateAiAnalysisResult(aiOutput3, input3);
 
   const fullText3 = `${aiOutput3.summary}\n${aiOutput3.findings.map((f) => f.statement).join("\n")}`;
@@ -137,7 +137,7 @@ async function runPhase8QualityProbe() {
 
   const analysis4 = runDeterministicAnalysis(recordsTest4);
   const input4 = buildDeterministicReportInput(analysis4);
-  const aiOutput4 = await generateMockAiAnalysis(input4);
+  const aiOutput4 = await generateDeterministicAiAnalysis(input4);
   const val4 = validateAiAnalysisResult(aiOutput4, input4);
 
   const fullText4 = `${aiOutput4.summary}\n${aiOutput4.findings.map((f) => f.statement).join("\n")}`;
@@ -165,7 +165,7 @@ async function runPhase8QualityProbe() {
 
   const analysis5 = runDeterministicAnalysis(recordsTest5);
   const input5 = buildDeterministicReportInput(analysis5);
-  const aiOutput5 = await generateMockAiAnalysis(input5);
+  const aiOutput5 = await generateDeterministicAiAnalysis(input5);
   const val5 = validateAiAnalysisResult(aiOutput5, input5);
 
   const fullText5 = `${aiOutput5.summary}\n${aiOutput5.findings.map((f) => f.statement).join("\n")}`;

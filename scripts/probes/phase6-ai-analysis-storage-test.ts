@@ -2,7 +2,7 @@
  * BiliProfile Analyzer — Phase 6.2 AI Analysis Storage & API Integration Test Suite
  *
  * Verifies:
- * 1. Valid task + deterministic report -> persistMockAiAnalysisForTask creates AI artifact; reading returns semantically equal result to generateAiAnalysis(report, "MOCK").
+ * 1. Valid task + deterministic report -> persistDeterministicAiAnalysisForTask creates AI artifact; reading returns semantically equal result to generateAiAnalysis(report, "MOCK").
  * 2. Idempotency: Repeating persist for same task with same report returns existing artifact safely without mutation (DB has 1 row).
  * 3. Non-existent task persist is rejected with zero writes.
  * 4. Terminal task AI artifact handling: absent -> backfill allowed; identical -> idempotent return; different -> conflict rejected; missing source report -> rejected.
@@ -36,7 +36,7 @@ import {
 } from "../../src/lib/processing/pipeline";
 import { persistDeterministicReportForTask } from "../../src/lib/deterministic-report-service";
 import {
-  persistMockAiAnalysisForTask,
+  persistDeterministicAiAnalysisForTask,
   getAiAnalysisForTask,
   generateAiAnalysis,
   TaskNotFoundError,
@@ -253,7 +253,7 @@ async function runAiStorageVerification() {
     // Test 1: Persist and Read AI Analysis Artifact
     // -------------------------------------------------------------------------
     console.log("[测试 1] 写入 MOCK AI 分析结果并读取，验证工件语义一致性...");
-    const persistedA = await persistMockAiAnalysisForTask(taskA1.id);
+    const persistedA = await persistDeterministicAiAnalysisForTask(taskA1.id);
     const readA = await getAiAnalysisForTask(taskA1.id);
 
     const directExpectedA = await generateAiAnalysis(reportInputA, "MOCK");
@@ -274,7 +274,7 @@ async function runAiStorageVerification() {
     // Test 2: Idempotent Repeat Persist
     // -------------------------------------------------------------------------
     console.log("\n[测试 2] 同一 Task 重复写入：安全幂等且返回同一 artifactId...");
-    const persistedRepeat = await persistMockAiAnalysisForTask(taskA1.id);
+    const persistedRepeat = await persistDeterministicAiAnalysisForTask(taskA1.id);
     const rowCountA = await prisma.aiAnalysisArtifact.count({
       where: { taskId: taskA1.id },
     });
@@ -292,7 +292,7 @@ async function runAiStorageVerification() {
     console.log("\n[测试 3] 不存在的 Task 写入：明确拒绝且零写入...");
     let nonExistentThrown = false;
     try {
-      await persistMockAiAnalysisForTask("non_existent_task_id_99999");
+      await persistDeterministicAiAnalysisForTask("non_existent_task_id_99999");
     } catch (err) {
       if (err instanceof TaskNotFoundError) {
         nonExistentThrown = true;
@@ -313,7 +313,7 @@ async function runAiStorageVerification() {
     console.log("\n[测试 4] 终态 Task AI 工件处理：缺则补生成、相同则幂等、不同则冲突拒绝、缺源报告则拒绝...");
 
     // 4a. Terminal task with report but no AI artifact -> backfill allowed
-    const backfilled = await persistMockAiAnalysisForTask(taskA2_terminal.id);
+    const backfilled = await persistDeterministicAiAnalysisForTask(taskA2_terminal.id);
     const backfillCount = await prisma.aiAnalysisArtifact.count({
       where: { taskId: taskA2_terminal.id },
     });
@@ -322,7 +322,7 @@ async function runAiStorageVerification() {
     if (!pass4a) allPassed = false;
 
     // 4b. Terminal task with identical existing artifact -> idempotent return
-    const idem = await persistMockAiAnalysisForTask(taskA2_terminal.id);
+    const idem = await persistDeterministicAiAnalysisForTask(taskA2_terminal.id);
     const idemCount = await prisma.aiAnalysisArtifact.count({
       where: { taskId: taskA2_terminal.id },
     });
@@ -335,7 +335,7 @@ async function runAiStorageVerification() {
     // 4c. Terminal task with a different pre-existing artifact -> conflict rejected, no overwrite
     let conflictThrown = false;
     try {
-      await persistMockAiAnalysisForTask(taskA4_terminal_diff.id);
+      await persistDeterministicAiAnalysisForTask(taskA4_terminal_diff.id);
     } catch (err) {
       if (err instanceof AiAnalysisConflictError) {
         conflictThrown = true;
@@ -359,7 +359,7 @@ async function runAiStorageVerification() {
     // 4d. Terminal task with no source report -> rejected with SourceReportNotFoundError
     let noSourceThrown = false;
     try {
-      await persistMockAiAnalysisForTask(taskA5_terminal_noreport.id);
+      await persistDeterministicAiAnalysisForTask(taskA5_terminal_noreport.id);
     } catch (err) {
       if (err instanceof SourceReportNotFoundError) {
         noSourceThrown = true;
@@ -378,7 +378,7 @@ async function runAiStorageVerification() {
     console.log("\n[测试 5] 缺少确定性报告工件的任务写入：明确拒绝且零写入...");
     let noReportThrown = false;
     try {
-      await persistMockAiAnalysisForTask(taskA3_no_report.id);
+      await persistDeterministicAiAnalysisForTask(taskA3_no_report.id);
     } catch (err) {
       if (err instanceof SourceReportNotFoundError) {
         noReportThrown = true;
@@ -443,7 +443,7 @@ async function runAiStorageVerification() {
     // Test 8: Two Tasks Isolation
     // -------------------------------------------------------------------------
     console.log("\n[测试 8] 两个不同 Task (Task A1 与 Task B1) 的 AI 工件严格隔离...");
-    const persistedB = await persistMockAiAnalysisForTask(taskB1.id);
+    const persistedB = await persistDeterministicAiAnalysisForTask(taskB1.id);
     const readB = await getAiAnalysisForTask(taskB1.id);
 
     const pass8 =
@@ -738,10 +738,10 @@ async function runAiStorageVerification() {
     });
     await persistDeterministicReportForTask(taskC2.id, analysisA);
 
-    // Concurrently invoke persistMockAiAnalysisForTask on taskC2
+    // Concurrently invoke persistDeterministicAiAnalysisForTask on taskC2
     const [resConc1, resConc2] = await Promise.all([
-      persistMockAiAnalysisForTask(taskC2.id),
-      persistMockAiAnalysisForTask(taskC2.id),
+      persistDeterministicAiAnalysisForTask(taskC2.id),
+      persistDeterministicAiAnalysisForTask(taskC2.id),
     ]);
 
     const countConc = await prisma.aiAnalysisArtifact.count({

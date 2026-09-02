@@ -50,7 +50,7 @@ export function PrivacyActionDialog({
               <h3 id="privacy-dialog-title" className="text-base font-bold text-foreground">
                 确认删除自述与关联历史？
               </h3>
-              <p className="text-xs text-destructive font-medium">删除自述信息并作废关联报告 (演示)</p>
+              <p className="text-xs text-destructive font-medium">删除自述信息并作废关联报告</p>
             </div>
           </div>
 
@@ -67,9 +67,9 @@ export function PrivacyActionDialog({
         {/* Warning Explanation */}
         <div className="space-y-3 text-xs text-muted-foreground leading-relaxed">
           <div className="p-3.5 rounded-2xl bg-destructive/10 border border-destructive/20 text-foreground font-medium text-[11px] space-y-1.5">
-            <div className="font-bold text-destructive">⚠️ 演示交互与含义说明</div>
+            <div className="font-bold text-destructive">⚠️ 此操作不可撤销</div>
             <p className="leading-relaxed">
-              此操作用于演示“删除自述与历史”的处理流程。确认后将在当前演示中清空表单并作废示例报告，刷新页面后可恢复初始示例。
+              确认后将彻底删除你填写的自述信息，并立即作废所有依赖该信息的已有历史报告。删除后的内容无法恢复。
             </p>
           </div>
         </div>

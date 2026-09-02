@@ -21,7 +21,7 @@ import {
 import {
   getAiProvider,
   generateAiAnalysis,
-  mockAiProvider,
+  deterministicAiProvider,
   validateAiAnalysisResult,
   AI_ANALYSIS_SCHEMA_VERSION,
   AiAnalysisResult,

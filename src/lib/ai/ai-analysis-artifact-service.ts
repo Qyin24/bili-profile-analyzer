@@ -449,10 +449,10 @@ export async function persistAiDegradedArtifactForTask(
 }
 
 /**
- * Generates and persists a mock AI analysis artifact for a task based on its deterministic report.
+ * Generates and persists a deterministic AI analysis artifact for a task based on its deterministic report.
  * Ensures concurrency safety and race-condition idempotency.
  */
-export async function persistMockAiAnalysisForTask(
+export async function persistDeterministicAiAnalysisForTask(
   taskId: string
 ): Promise<TaskAiAnalysisResponse> {
   return persistAiAnalysisForTask(taskId, { provider: "MOCK" });

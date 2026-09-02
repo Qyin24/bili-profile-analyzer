@@ -73,7 +73,7 @@ export interface DataSourceRun {
   message?: string | null;
 }
 
-export interface AnalysisTaskMock {
+export interface AnalysisTaskDeterministic {
   id: string;
   targetId: string;
   targetName: string;
@@ -88,7 +88,7 @@ export interface AnalysisTaskMock {
   dataSourceRuns: DataSourceRun[];
 }
 
-export type AnalysisTask = AnalysisTaskMock;
+export type AnalysisTask = AnalysisTaskDeterministic;
 
 export interface TopicTaxonomyItem {
   id: string;
@@ -154,7 +154,7 @@ export interface AIClaimItem {
   uncertainty: string;
 }
 
-export interface AnalysisResultMock {
+export interface AnalysisResultDeterministic {
   id: string;
   taskId: string;
   targetId: string;
@@ -185,7 +185,7 @@ export interface AnalysisResultMock {
   evidenceSnapshots: ReportEvidenceSnapshot[];
 }
 
-export interface MockQAPair {
+export interface DeterministicQAPair {
   id: string;
   question: string;
   answer: string;

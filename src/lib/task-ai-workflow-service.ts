@@ -4,7 +4,7 @@
  * Orchestrates the secure completion workflow for an AnalysisTask:
  * 1. Validates task existence and non-terminal status;
  * 2. Persists DeterministicReportArtifact via persistDeterministicReportForTask;
- * 3. Persists AiAnalysisArtifact (MOCK provider) via persistMockAiAnalysisForTask;
+ * 3. Persists AiAnalysisArtifact (MOCK provider) via persistDeterministicAiAnalysisForTask;
  * 4. Verifies both artifacts via read-only services (getDeterministicReportForTask & getAiAnalysisForTask);
  * 5. Updates task to COMPLETED / REPORT / 100% via task lifecycle rules only after both artifacts are verified.
  *
@@ -439,9 +439,9 @@ export async function completeTaskWithAi(
 }
 
 /**
- * Convenience wrapper for completing tasks with the offline MOCK AI provider.
+ * Convenience wrapper for completing tasks with the offline deterministic AI provider.
  */
-export async function completeTaskWithOfflineMockAi(
+export async function completeTaskWithOfflineDeterministicAi(
   taskId: string,
   deterministicAnalysis: DeterministicAnalysisResult
 ): Promise<TaskAiWorkflowResult> {

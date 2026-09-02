@@ -55,9 +55,6 @@ export function AppNavigation() {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-bold text-foreground tracking-tight">BiliProfile</span>
-                  <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-primary/15 text-primary rounded-md border border-primary/20">
-                    演示模式
-                  </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground truncate">公开内容偏好分析</p>
               </div>
@@ -116,7 +113,7 @@ export function AppNavigation() {
         <div className="p-3.5 rounded-2xl bg-muted/50 border border-border/60 text-[11px] text-muted-foreground space-y-1.5">
           <div className="font-semibold text-foreground/90 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-primary" />
-            <span>本地受控演示</span>
+            <span>隐私优先</span>
           </div>
           <p className="text-[10px] leading-relaxed text-muted-foreground">
             仅使用公开可见信息与你主动补充的内容。未访问外部模型或非公开账号。

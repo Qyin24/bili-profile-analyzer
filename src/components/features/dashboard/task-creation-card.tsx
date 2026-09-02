@@ -383,7 +383,7 @@ export function TaskCreationCard({ onTaskCreated }: TaskCreationCardProps) {
                   </span>
                 ) : (
                   <span className="text-muted-foreground">
-                    本地内置 Mock（未配置自定义 API）
+                    基础分析（内置，无需 API Key）
                   </span>
                 )}
               </div>

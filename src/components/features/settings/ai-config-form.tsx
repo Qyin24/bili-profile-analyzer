@@ -69,7 +69,7 @@ export function AiConfigForm() {
     if (provider === "MOCK") {
       setTestResult({
         success: true,
-        message: "当前为内置 Mock 演示模式，无需进行外部 API 连接测试。",
+        message: "当前为基础分析（无需 API Key）模式，无需进行外部 API 连接测试。",
       });
       return;
     }
@@ -131,7 +131,7 @@ export function AiConfigForm() {
     setModel("gpt-4o-mini");
     setErrorMessage(null);
     setTestResult(null);
-    setToastMessage("已重置为默认内置 Mock 模式。");
+    setToastMessage("已重置为默认的基础分析（无需 API Key）模式。");
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -159,7 +159,7 @@ export function AiConfigForm() {
           {isConfigured ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{aiConfig.provider === "MOCK" ? "内置 Mock 模式" : "AI 服务已配置"}</span>
+              <span>{aiConfig.provider === "MOCK" ? "基础分析（无需 API Key）" : "AI 服务已配置"}</span>
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground border border-border/60">
@@ -228,9 +228,12 @@ export function AiConfigForm() {
                 className="text-primary accent-primary"
               />
               <div className="space-y-0.5">
-                <span className="block text-foreground font-medium">Mock / 演示模式</span>
+                <span className="block text-foreground font-medium">基础分析（无需 API Key）</span>
                 <span className="text-[11px] text-muted-foreground block">
-                  无需 API Key，使用本地受控演示数据
+                  仅使用系统的确定性分析能力，不调用外部 AI 服务。
+                </span>
+                <span className="text-[11px] text-muted-foreground block">
+                  无需配置 API Key 即可完成基础分析；如需 AI 生成的深度报告，可配置自己的 AI API。
                 </span>
               </div>
             </label>
@@ -373,7 +376,7 @@ export function AiConfigForm() {
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground border border-border/60 hover:bg-muted/50 transition-colors cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>恢复默认 Mock</span>
+              <span>恢复默认（基础分析）</span>
             </button>
           )}
         </div>
